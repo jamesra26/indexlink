@@ -1,0 +1,7 @@
+[package]
+name = "quant-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+core-domain.workspace = true
