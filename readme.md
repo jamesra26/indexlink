@@ -160,8 +160,10 @@ indexlink/
 1. **MVP**：`core-domain` + `quant-engine`（仅 70%）+ `MockBroker` + 本地回测，验证分位驱动的自适应定投。
 2. **加节奏**：接入 20% 趋势 + 熔断。
 3. **加 AI**：接入 Qwen 的 10% 有界微调 + 降级。
-4. **上调度与执行**：持久化 Scheduler + 幂等下单 + 审计日志。
+4. **上调度与执行**：持久化 Scheduler + 幂等下单 + 审计日志；为纯数据结构补充 feature-gated `serde` 支持，用于落地输入快照、`decisions` 审计存证与当日复现。
 5. **接实盘**：实现 `RealBroker` + 人工确认流。
+
+> `serde` 仅提供数据编码/解码能力，不引入 IO；对 `Percentile`、`Multiplier` 等带不变量的 newtype，反序列化必须复用构造校验，避免绕过安全边界。
 
 ---
 
