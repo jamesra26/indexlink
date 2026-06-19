@@ -1,8 +1,48 @@
-# IndexLink: Enhanced Adaptive Index DCA Agent
+<p align="center">
+  <img src="assets/icons/" alt="IndexLink" width="400">
+</p>
 
-[中文](readme.md)
+<p align="center">
+  English | <a href="./README.md">中文文档</a>
+</p>
 
-> **Stop mechanical DCA. Start connecting to data.**
+<p align="center">
+  <a href="https://github.com/jamesra26/indexlink/blob/main/Cargo.toml"><img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version"></a>
+  <a href="https://github.com/jamesra26/indexlink/releases"><img src="https://img.shields.io/github/v/release/jamesra26/indexlink?display_name=tag" alt="Latest Release"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://github.com/jamesra26/indexlink"><img src="https://img.shields.io/badge/status-early%20development-orange" alt="Status"></a>
+</p>
+
+<p align="center">
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-edition%202021-orange.svg" alt="Rust"></a>
+  <a href="https://doc.rust-lang.org/cargo/"><img src="https://img.shields.io/badge/Cargo-workspace-lightgrey.svg" alt="Cargo Workspace"></a>
+  <a href="https://github.com/jamesra26/indexlink"><img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg" alt="Platform"></a>
+  <a href="https://github.com/jamesra26/indexlink/tree/main/crates"><img src="https://img.shields.io/badge/crates-core--domain%20%7C%20quant--engine-blue" alt="Crates"></a>
+</p>
+
+<p align="center">
+  <a href="https://conventionalcommits.org"><img src="https://img.shields.io/badge/Conventional%20Commits-1.0.0-yellow.svg" alt="Conventional Commits"></a>
+  <a href="./CHANGE_LOG.md"><img src="https://img.shields.io/badge/changelog-CHANGE__LOG.md-green" alt="Changelog"></a>
+  <a href="./AGENTS.md"><img src="https://img.shields.io/badge/contributing-AGENTS.md-blue" alt="Contributing"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/jamesra26/indexlink/stargazers"><img src="https://img.shields.io/github/stars/jamesra26/indexlink?style=social" alt="GitHub Stars"></a>
+  <a href="https://github.com/jamesra26/indexlink/commits/main"><img src="https://img.shields.io/github/last-commit/jamesra26/indexlink" alt="Last Commit"></a>
+  <a href="https://github.com/jamesra26/indexlink/graphs/commit-activity"><img src="https://img.shields.io/github/commit-activity/m/jamesra26/indexlink" alt="Commit Activity"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/jamesra26/indexlink/issues"><img src="https://img.shields.io/github/issues/jamesra26/indexlink" alt="Open Issues"></a>
+  <a href="https://github.com/jamesra26/indexlink/pulls"><img src="https://img.shields.io/github/issues-pr/jamesra26/indexlink" alt="Open PRs"></a>
+  <a href="https://github.com/jamesra26/indexlink/graphs/contributors"><img src="https://img.shields.io/github/contributors/jamesra26/indexlink" alt="Contributors"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/jamesra26/indexlink/issues">Issue Tracker</a> •
+  <a href="./LICENSE">License</a> •
+  <a href="./CHANGE_LOG.md">Changelog</a>
+</p>
 
 IndexLink is an intelligent dollar-cost averaging (DCA) execution system designed for long-term index investors. Powered by a dual engine of **historical percentile anchors + AI semantic sensing**, it fine-tunes each scheduled investment day: invest more at relative lows, invest less at relative highs, and delay when overheated.
 
@@ -24,11 +64,11 @@ Traditional DCA becomes rigid in extreme market conditions. IndexLink exists to 
 
 The system rejects "blind AI fantasy." Every instruction follows this weighted logic:
 
-| Dimension | Weight | Core Indicators | Role of AI |
-| :-------- | :----- | :-------------- | :--------- |
-| **Historical Position (Fundamental)** | **70%** | Shiller P/E, ERP, historical percentiles | **Hard constraint:** compute where the current price sits in its historical distribution. |
-| **Recent Trend (Technical)** | **20%** | Distance from 200-day MA, RSI, volatility (VIX) | **Rhythm control:** detect "catching a falling knife" or "chasing the top." |
-| **Semantic Sensing (Sentiment)** | **10%** | Earnings expectation gaps, macro news, user-defined sources | **Soft nudge:** use Qwen to infer directional bias behind news and rating changes. |
+| Dimension                             | Weight  | Core Indicators                                             | Role of AI                                                                                |
+| :------------------------------------ | :------ | :---------------------------------------------------------- | :---------------------------------------------------------------------------------------- |
+| **Historical Position (Fundamental)** | **70%** | Shiller P/E, ERP, historical percentiles                    | **Hard constraint:** compute where the current price sits in its historical distribution. |
+| **Recent Trend (Technical)**          | **20%** | Distance from 200-day MA, RSI, volatility (VIX)             | **Rhythm control:** detect "catching a falling knife" or "chasing the top."               |
+| **Semantic Sensing (Sentiment)**      | **10%** | Earnings expectation gaps, macro news, user-defined sources | **Soft nudge:** use Qwen to infer directional bias behind news and rating changes.        |
 
 ---
 
@@ -94,14 +134,14 @@ graph TD
 
 ### Module Responsibilities
 
-| Module | Weight | Responsibility |
-| :----- | :----- | :--------------- |
-| **Scheduler** | — | Trigger DCA-day decisions via Tokio + persistent task table; idempotency key; survives process restarts. |
-| **Quant Engine** | 70% + 20% | Convert all indicators to percentiles within their own historical distributions; pure functions, no IO, shared by live trading and backtests. |
-| **AI Client** | 10% | Wrap Qwen; output bounded sentiment offset `sentiment ∈ [-1, +1]`; return 0 on timeout/parse failure (degraded mode). |
-| **Decision Engine** | — | Combine 70/20/10 into a composite score, map to DCA multiplier, emit `Decision` with input snapshot. |
-| **Execution Orchestrator** | — | Decision → (optional) user confirm → idempotent order; state machine `Pending→Confirmed→Submitted→Filled/Failed/Skipped`. |
-| **Broker Adapter** | — | One trait, two implementations: `MockBroker` (backtest/demo) and `RealBroker` (live). |
+| Module                     | Weight    | Responsibility                                                                                                                                |
+| :------------------------- | :-------- | :-------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Scheduler**              | —         | Trigger DCA-day decisions via Tokio + persistent task table; idempotency key; survives process restarts.                                      |
+| **Quant Engine**           | 70% + 20% | Convert all indicators to percentiles within their own historical distributions; pure functions, no IO, shared by live trading and backtests. |
+| **AI Client**              | 10%       | Wrap Qwen; output bounded sentiment offset `sentiment ∈ [-1, +1]`; return 0 on timeout/parse failure (degraded mode).                         |
+| **Decision Engine**        | —         | Combine 70/20/10 into a composite score, map to DCA multiplier, emit `Decision` with input snapshot.                                          |
+| **Execution Orchestrator** | —         | Decision → (optional) user confirm → idempotent order; state machine `Pending→Confirmed→Submitted→Filled/Failed/Skipped`.                     |
+| **Broker Adapter**         | —         | One trait, two implementations: `MockBroker` (backtest/demo) and `RealBroker` (live).                                                         |
 
 ### Decision Pipeline
 
@@ -138,12 +178,12 @@ indexlink/
 
 ### Persistence & Audit
 
-| Table | Purpose |
-| :---- | :------ |
-| `plans` | DCA plans (symbol, schedule, base amount, risk params) |
-| `decisions` | Each decision + **input snapshot** + rationale (AI Decision Record) |
-| `orders` | Order state machine + idempotency keys |
-| `market_cache` | Market/indicator cache for same-day reproducibility |
+| Table          | Purpose                                                             |
+| :------------- | :------------------------------------------------------------------ |
+| `plans`        | DCA plans (symbol, schedule, base amount, risk params)              |
+| `decisions`    | Each decision + **input snapshot** + rationale (AI Decision Record) |
+| `orders`       | Order state machine + idempotency keys                              |
+| `market_cache` | Market/indicator cache for same-day reproducibility                 |
 
 > Audit principle: **store inputs, not just conclusions**—persist percentiles, trend signals, sentiment, and weights at decision time so you can answer "why did we add 30% that day?"
 

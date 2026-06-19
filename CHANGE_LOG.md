@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### 2026-06-19（文档）
+
+- 执行模型：Composer。
+- 变更类型：文档。
+- 涉及文件：
+  - `readme.md`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 `readme.md` 顶部徽章区从 AuroraView 模板链接替换为 IndexLink（`jamesra26/indexlink`）项目链接。
+  - 移除不适用的 PyPI、Python、Codecov、CI workflow、pre-commit、ruff、mypy 等徽章。
+  - 补充 Rust workspace、crate 结构、CHANGELOG、AGENTS 及 GitHub 社区类徽章；页脚链接改为 Issue Tracker、LICENSE、CHANGELOG。
+- 验证：
+  - 文档改动，未运行测试。
+
 ### 2026-06-19 23:12 UTC+10
 
 - 执行模型：GPT-5.5。
