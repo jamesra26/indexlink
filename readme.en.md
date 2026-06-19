@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  English | <a href="./README.md">中文文档</a>
+  English | <a href="./readme.md">中文文档</a>
 </p>
 
 <p align="center">
