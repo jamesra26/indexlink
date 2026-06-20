@@ -59,7 +59,6 @@ impl Percentile {
     ///
     /// 用于ERP等反向指标：ERP越高代表市场越便宜，
     /// 倒置后才与 CAPE 方向一致（值越大 = 市场越贵）。
-    #[must_use]
     pub fn invert(self) -> Self {
         Self(1.0 - self.0)
     }
@@ -140,7 +139,6 @@ impl Multiplier {
     pub const STANDARD_MAX: Self = Self(Self::STANDARD_MAX_VALUE);
 
     /// 创建倍率，自动 clamp 到 `[0.0, 1.5]`；NaN 视为最保守的 Skip 倍率。
-    #[must_use]
     pub fn new_clamped(value: f64) -> Self {
         let v = if value.is_nan() {
             Self::MIN_VALUE
