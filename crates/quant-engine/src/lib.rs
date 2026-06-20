@@ -1,0 +1,68 @@
+//! Quant Engine — 70/20/10 框架的前两层。
+//!
+//! **设计原则：纯函数，零 IO。**
+//!
+//! 所有函数只接受数据、返回结果，没有任何网络请求、文件读写或全局状态。
+//! 这使得同一份代码可同时用于实盘和历史回测，结果完全可复现。
+//!
+//! # 当前实现范围（MVP 第一阶段）
+//!
+//! - **第一层（70% 基本面）**：Shiller CAPE 分位 + ERP 分位 → 综合基本面得分
+//! - 第二层（20% 趋势）：预留接口，本期为存根（stub）
+
+pub mod fundamental;
+pub mod percentile;
+pub mod trend;
+
+pub use fundamental::{
+    evaluate_fundamental, FundamentalConfig, FundamentalSignal, FundamentalSnapshot, Weight,
+};
+pub use percentile::percentile_of;
+pub use trend::{evaluate_trend_stub, TrendSignal};
+
+// ─── 错误类型 ────────────────────────────────────────────────────────────────
+
+/// Quant Engine 可能产生的错误。
+#[derive(Debug, Clone, PartialEq)]
+pub enum QuantError {
+    /// 历史数据点不足。
+    InsufficientHistory {
+        indicator: &'static str,
+        required: usize,
+        found: usize,
+    },
+    /// 配置权重无效。
+    InvalidWeight { value: f64 },
+    /// 最少历史数据点数无效。
+    InvalidMinHistoryLen { value: usize },
+    /// 当前指标读数无效。
+    InvalidCurrentValue { indicator: &'static str, value: f64 },
+}
+
+impl std::fmt::Display for QuantError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InsufficientHistory {
+                indicator,
+                required,
+                found,
+            } => {
+                write!(
+                    f,
+                    "{indicator}: requires at least {required} historical data points, found {found}"
+                )
+            }
+            Self::InvalidWeight { value } => {
+                write!(f, "weight must be finite and in [0.0, 1.0], got {value}")
+            }
+            Self::InvalidMinHistoryLen { value } => {
+                write!(f, "min_history_len must be greater than 0, got {value}")
+            }
+            Self::InvalidCurrentValue { indicator, value } => {
+                write!(f, "{indicator} current value must be finite, got {value}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for QuantError {}

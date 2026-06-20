@@ -62,7 +62,25 @@ fn insufficient_history_returns_error() {
 fn nan_current_returns_error() {
     let h = standard_history();
     let err = percentile_of("ERP", &h, f64::NAN, TEST_MIN_HISTORY_LEN).unwrap_err();
-    assert!(matches!(err, QuantError::InvalidInput(_)));
+    assert!(matches!(
+        err,
+        QuantError::InvalidCurrentValue {
+            indicator: "ERP",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn zero_min_len_returns_error_before_empty_history_division() {
+    // min_len = 0 曾会让空历史通过长度检查，随后 0/0 产生 NaN 并 panic。
+    let h = Vec::new();
+    let err = percentile_of("CAPE", &h, 10.0, 0).unwrap_err();
+    assert!(
+        matches!(err, QuantError::InvalidMinHistoryLen { value: 0 }),
+        "min_len = 0 应在分位计算前被拒绝，实际 {:?}",
+        err
+    );
 }
 
 #[test]
@@ -123,32 +141,26 @@ fn insufficient_history_reports_indicator_and_required() {
 }
 
 #[test]
-fn positive_infinity_current_is_treated_as_max() {
-    // 边界（当前为未定义行为）：实现只拦截 NaN，+Inf 被当作合法值。
-    // +Inf ≥ 任意有限历史值 → 全部 <= current → 分位 = 1.0。
-    // 若后续实现层加入 is_finite 校验，应改为断言返回 QuantError::InvalidInput。
+fn positive_infinity_current_returns_error() {
+    // 金融读数必须是有限数；+Inf 更像上游数据管道异常，而不是合法极端估值。
     let h = standard_history();
-    let p = percentile_of("T", &h, f64::INFINITY, TEST_MIN_HISTORY_LEN).unwrap();
-    assert_eq!(
-        p.value(),
-        MAX_PERCENTILE,
-        "+Inf 当前被当作历史最高位，实际 {}",
-        p
+    let err = percentile_of("T", &h, f64::INFINITY, TEST_MIN_HISTORY_LEN).unwrap_err();
+    assert!(
+        matches!(err, QuantError::InvalidCurrentValue { indicator: "T", .. }),
+        "+Inf 当前读数应返回 InvalidCurrentValue，实际 {:?}",
+        err
     );
 }
 
 #[test]
-fn negative_infinity_current_is_treated_as_min() {
-    // 边界（当前为未定义行为）：-Inf 同样未被拦截。
-    // 没有任何有限历史值 <= -Inf → count_le = 0 → 分位 = 0.0。
-    // 若后续实现层加入 is_finite 校验，应改为断言返回 QuantError::InvalidInput。
+fn negative_infinity_current_returns_error() {
+    // 金融读数必须是有限数；-Inf 同样应被视为非法输入。
     let h = standard_history();
-    let p = percentile_of("T", &h, f64::NEG_INFINITY, TEST_MIN_HISTORY_LEN).unwrap();
-    assert_eq!(
-        p.value(),
-        MIN_PERCENTILE,
-        "-Inf 当前被当作历史最低位，实际 {}",
-        p
+    let err = percentile_of("T", &h, f64::NEG_INFINITY, TEST_MIN_HISTORY_LEN).unwrap_err();
+    assert!(
+        matches!(err, QuantError::InvalidCurrentValue { indicator: "T", .. }),
+        "-Inf 当前读数应返回 InvalidCurrentValue，实际 {:?}",
+        err
     );
 }
 
@@ -164,9 +176,24 @@ fn quant_error_display_is_descriptive() {
         "CAPE: requires at least 60 historical data points, found 3"
     );
 
-    let invalid = QuantError::InvalidInput("ERP current value is NaN".to_string());
+    let invalid = QuantError::InvalidCurrentValue {
+        indicator: "ERP",
+        value: f64::INFINITY,
+    };
     assert_eq!(
         invalid.to_string(),
-        "invalid input: ERP current value is NaN"
+        "ERP current value must be finite, got inf"
+    );
+
+    let invalid_min_len = QuantError::InvalidMinHistoryLen { value: 0 };
+    assert_eq!(
+        invalid_min_len.to_string(),
+        "min_history_len must be greater than 0, got 0"
+    );
+
+    let invalid_weight = QuantError::InvalidWeight { value: 1.5 };
+    assert_eq!(
+        invalid_weight.to_string(),
+        "weight must be finite and in [0.0, 1.0], got 1.5"
     );
 }

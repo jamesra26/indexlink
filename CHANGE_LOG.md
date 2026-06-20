@@ -2,6 +2,157 @@
 
 ## Unreleased
 
+### 2026-06-20 14:05 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：测试补全（覆盖率提升）。
+- 涉及文件：
+  - `crates/quant-engine/tests/fundamental.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 为 `Weight` 公开转换契约补充集成测试：`TryFrom<f64> for Weight` 接受合法原始权重，以及 `From<Weight> for f64` 可回取底层数值。
+  - 覆盖此前 `cargo llvm-cov -p quant-engine --test fundamental` 报告中 `fundamental/mod.rs` 未覆盖的转换 trait 行。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过：20 个 fundamental 测试、16 个 percentile 测试、1 个 trend 测试、1 个 doc test 全部通过。
+  - `cargo llvm-cov -p quant-engine --test fundamental --summary-only --show-missing-lines` 通过：`crates/quant-engine/src/fundamental/mod.rs` 行覆盖率、函数覆盖率与 region 覆盖率均为 100%。
+
+### 2026-06-20 13:56 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：实现可读性整理（不改变行为）。
+- 涉及文件：
+  - `crates/quant-engine/src/fundamental/mod.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 `FundamentalConfig::default()` 中的默认 CAPE 权重 `0.5` 和默认历史长度 `60` 提升为模块内常量，减少实现侧魔法数字。
+  - 保持默认配置行为不变：CAPE/ERP 各半，最少 5 年月度历史数据。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过。
+  - `cargo test -p core-domain` 通过。
+
+### 2026-06-20 13:50 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：公开 API 重构（错误类型结构化）。
+- 涉及文件：
+  - `crates/quant-engine/src/lib.rs`
+  - `crates/quant-engine/src/fundamental/mod.rs`
+  - `crates/quant-engine/src/percentile.rs`
+  - `crates/quant-engine/tests/fundamental.rs`
+  - `crates/quant-engine/tests/percentile.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 `QuantError::InvalidInput(String)` 拆分为 `InvalidWeight { value }`、`InvalidMinHistoryLen { value }`、`InvalidCurrentValue { indicator, value }`，便于调用方按错误语义精确匹配。
+  - 更新 `Weight::new`、`FundamentalConfig::new` 与 `percentile_of`，分别返回对应结构化错误分支。
+  - 更新测试断言与 `Display` 测试，避免依赖通用字符串错误来区分输入异常。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过：18 个 fundamental 测试、16 个 percentile 测试、1 个 trend 测试、1 个 doc test 全部通过。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-06-20 13:47 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：公开 API 易用性增强。
+- 涉及文件：
+  - `crates/quant-engine/src/fundamental/mod.rs`
+  - `crates/quant-engine/tests/fundamental.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 为公开类型 `Weight` 实现 `Display`，以 `50.0%` 这类百分比格式输出，便于审计日志阅读。
+  - 补充 `weight_display_uses_percent_format_for_audit_logs` 测试，锁定默认 CAPE 权重的展示格式。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过。
+  - `cargo test -p core-domain` 通过。
+
+### 2026-06-20 13:45 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：公开 API 易用性增强。
+- 涉及文件：
+  - `crates/quant-engine/src/fundamental/mod.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 为 `FundamentalConfig`、`FundamentalSnapshot`、`FundamentalSignal` 派生 `PartialEq`，方便测试断言和上层审计回放进行逐字段精确比较。
+  - 保持不派生 `Eq`，避免为包含浮点语义的类型引入不合适的全等承诺。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过。
+  - `cargo test -p core-domain` 通过。
+
+### 2026-06-20 12:12 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：审计修复（金融输入有限性校验）。
+- 涉及文件：
+  - `crates/quant-engine/src/percentile.rs`
+  - `crates/quant-engine/tests/percentile.rs`
+  - `crates/quant-engine/tests/fundamental.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 `percentile_of` 的当前读数校验从仅拒绝 `NaN` 收紧为拒绝所有非有限数，`±Inf` 现在返回 `QuantError::InvalidCurrentValue`。
+  - 更新 `percentile` 边界测试，不再把 `+Inf` / `-Inf` 锁定为合法极端分位。
+  - 更新 fundamental 层传播测试，确认 CAPE/ERP 当前读数为非有限数时向上传播 `InvalidCurrentValue`。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过：17 个 fundamental 测试、16 个 percentile 测试、1 个 trend 测试、1 个 doc test 全部通过。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-06-20 12:06 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：命名重构（公开 API 语义收敛）。
+- 涉及文件：
+  - `crates/quant-engine/src/fundamental/mod.rs`
+  - `crates/quant-engine/src/lib.rs`
+  - `crates/quant-engine/tests/fundamental.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 fundamental 层输入快照从 `MarketSnapshot` 重命名为 `FundamentalSnapshot`，避免未来与趋势层快照或上层聚合市场快照混淆。
+  - 同步根级导出与 fundamental 集成测试，不保留旧名兼容导出。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过。
+  - `cargo test -p core-domain` 通过。
+
+### 2026-06-20 12:04 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：审计修复（分位计算输入校验）。
+- 涉及文件：
+  - `crates/quant-engine/src/percentile.rs`
+  - `crates/quant-engine/tests/percentile.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 在公共函数 `percentile_of` 入口拒绝 `min_len = 0`，避免空历史在长度检查后继续执行并触发 `0 / 0`、NaN 分位和后续 panic。
+  - 补充 `zero_min_len_returns_error_before_empty_history_division` 回归测试，锁定 `min_len = 0 + 空历史` 返回 `QuantError::InvalidMinHistoryLen`。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过：17 个 fundamental 测试、16 个 percentile 测试、1 个 trend 测试、1 个 doc test 全部通过。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-06-20 11:47 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：审计修复（配置不变量保护）。
+- 涉及文件：
+  - `crates/quant-engine/src/fundamental/mod.rs`
+  - `crates/quant-engine/src/lib.rs`
+  - `crates/quant-engine/tests/fundamental.rs`
+  - `crates/quant-engine/tests/common/mod.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `Weight` newtype，用于表达配置权重并在构造期校验 `[0.0, 1.0]`，避免 `cape_weight` 越界破坏加权平均不变量。
+  - 为 `FundamentalConfig` 新增 `new(cape_weight, min_history_len)` 构造函数，并将 `min_history_len` 收紧为 `NonZeroUsize`，防止 0 长度配置进入分位计算。
+  - 更新基本面测试：将原先锁定非法权重运行期 panic 的用例改为断言构造期返回结构化错误，并补充 `min_history_len = 0` 的拒绝测试。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过：17 个 fundamental 测试、15 个 percentile 测试、1 个 trend 测试、1 个 doc test 全部通过。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
 ### 2026-06-20 11:36 UTC+10
 
 - 执行模型：GPT-5.5。
@@ -50,7 +201,7 @@
   - `CHANGE_LOG.md`
 - 变更内容：
   - 将 `quant-engine` 从单文件实现拆分为 `percentile`、`fundamental`、`trend` 三个模块，明确共享分位工具、第一层（70% 基本面）与第二层（20% 趋势）的边界。
-  - `fundamental` 模块承载 `FundamentalConfig`、`MarketSnapshot`、`FundamentalSignal` 与 `evaluate_fundamental`；`trend` 模块承载 `TrendSignal` 与当前中性存根 `evaluate_trend_stub`；`percentile` 模块承载 `percentile_of`。
+  - `fundamental` 模块承载 `FundamentalConfig`、`FundamentalSnapshot`、`FundamentalSignal` 与 `evaluate_fundamental`；`trend` 模块承载 `TrendSignal` 与当前中性存根 `evaluate_trend_stub`；`percentile` 模块承载 `percentile_of`。
   - `lib.rs` 保留 crate 文档、模块声明、跨层 `QuantError`，并通过 `pub use` 维持原有根级 API（如 `quant_engine::evaluate_fundamental`、`quant_engine::percentile_of`）兼容。
 - 验证：
   - `cargo fmt -p quant-engine` 通过。

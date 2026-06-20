@@ -5,10 +5,12 @@ mod common;
 use common::{
     balanced_test_config, make_history, standard_history, test_config, BALANCED_CAPE_WEIGHT,
     CAPE_ONLY_WEIGHT, CHEAP_SCORE_UPPER_BOUND, DEFAULT_MIN_HISTORY_LEN, ERP_ONLY_WEIGHT,
-    EXACT_FLOAT_TOLERANCE, EXPENSIVE_SCORE_LOWER_BOUND, MAX_PERCENTILE, MIN_PERCENTILE,
-    NEUTRAL_PERCENTILE, NEUTRAL_TOLERANCE, TEST_MIN_HISTORY_LEN, VERY_LOW_PERCENTILE_UPPER_BOUND,
+    EXACT_FLOAT_TOLERANCE, EXPENSIVE_SCORE_LOWER_BOUND, MAX_PERCENTILE, NEUTRAL_PERCENTILE,
+    NEUTRAL_TOLERANCE, TEST_MIN_HISTORY_LEN, VERY_LOW_PERCENTILE_UPPER_BOUND,
 };
-use quant_engine::{evaluate_fundamental, FundamentalConfig, MarketSnapshot, QuantError};
+use quant_engine::{
+    evaluate_fundamental, FundamentalConfig, FundamentalSnapshot, QuantError, Weight,
+};
 
 #[test]
 fn fundamental_expensive_market() {
@@ -16,7 +18,7 @@ fn fundamental_expensive_market() {
     let erp_h: Vec<f64> = (1..=100).map(|i| i as f64 * 0.1).collect();
     let cfg = balanced_test_config();
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 900.0,
         erp_history: erp_h,
@@ -37,7 +39,7 @@ fn fundamental_cheap_market() {
     let erp_h: Vec<f64> = (1..=100).map(|i| i as f64 * 0.1).collect();
     let cfg = balanced_test_config();
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 100.0,
         erp_history: erp_h,
@@ -58,7 +60,7 @@ fn fundamental_neutral_market() {
     let erp_h = standard_history();
     let cfg = FundamentalConfig::default();
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 50.0,
         erp_history: erp_h,
@@ -83,7 +85,7 @@ fn rate_repricing_low_erp_pushes_score_expensive_despite_neutral_cape() {
     let erp_h = standard_history();
     let cfg = balanced_test_config();
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 50.0, // CAPE 分位 = 0.50（中性）
         erp_history: erp_h,
@@ -122,8 +124,27 @@ fn rate_repricing_low_erp_pushes_score_expensive_despite_neutral_cape() {
 fn default_config_matches_readme_contract() {
     // 默认配置应为：CAPE/ERP 各半，5 年（60）月度历史下限。
     let cfg = FundamentalConfig::default();
-    assert_eq!(cfg.cape_weight, BALANCED_CAPE_WEIGHT);
-    assert_eq!(cfg.min_history_len, DEFAULT_MIN_HISTORY_LEN);
+    assert_eq!(cfg.cape_weight.value(), BALANCED_CAPE_WEIGHT);
+    assert_eq!(cfg.min_history_len.get(), DEFAULT_MIN_HISTORY_LEN);
+}
+
+#[test]
+fn weight_display_uses_percent_format_for_audit_logs() {
+    let cfg = FundamentalConfig::default();
+    assert_eq!(cfg.cape_weight.to_string(), "50.0%");
+}
+
+#[test]
+fn weight_try_from_accepts_valid_raw_value() {
+    let weight = Weight::try_from(BALANCED_CAPE_WEIGHT).unwrap();
+    assert_eq!(weight.value(), BALANCED_CAPE_WEIGHT);
+}
+
+#[test]
+fn weight_converts_into_raw_f64() {
+    let weight = Weight::new(BALANCED_CAPE_WEIGHT).unwrap();
+    let raw: f64 = weight.into();
+    assert_eq!(raw, BALANCED_CAPE_WEIGHT);
 }
 
 #[test]
@@ -134,7 +155,7 @@ fn erp_percentile_audit_field_is_not_inverted() {
     let erp_h = standard_history();
     let cfg = balanced_test_config();
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 10.0,
         erp_history: erp_h,
@@ -162,7 +183,7 @@ fn audit_fields_reflect_raw_percentiles() {
     let erp_h = standard_history();
     let cfg = balanced_test_config();
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 30.0,
         erp_history: erp_h,
@@ -181,7 +202,7 @@ fn cape_weight_full_uses_only_cape() {
     let erp_h = standard_history();
     let cfg = test_config(CAPE_ONLY_WEIGHT);
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 80.0,
         erp_history: erp_h,
@@ -203,7 +224,7 @@ fn cape_weight_zero_uses_only_inverted_erp() {
     let erp_h = standard_history();
     let cfg = test_config(ERP_ONLY_WEIGHT);
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 80.0, // 任意值都不应影响结果
         erp_history: erp_h,
@@ -224,7 +245,7 @@ fn cape_weight_zero_uses_only_inverted_erp() {
 fn propagates_insufficient_history_for_circuit_breaker() {
     // 数据不足时应向上传播错误，供熔断/降级链触发默认 Skip。
     let cfg = FundamentalConfig::default(); // min_history_len = 60
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: vec![1.0, 2.0, 3.0],
         cape_current: 2.0,
         erp_history: standard_history(),
@@ -247,9 +268,9 @@ fn propagates_insufficient_history_for_circuit_breaker() {
 
 #[test]
 fn propagates_invalid_input_on_nan_current() {
-    // 当前读数为 NaN 时应传播 InvalidInput，绝不静默产出得分。
+    // 当前读数为 NaN 时应传播 InvalidCurrentValue，绝不静默产出得分。
     let cfg = balanced_test_config();
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: standard_history(),
         cape_current: 50.0,
         erp_history: standard_history(),
@@ -258,111 +279,92 @@ fn propagates_invalid_input_on_nan_current() {
 
     let err = evaluate_fundamental(&snapshot, &cfg).unwrap_err();
     assert!(
-        matches!(err, QuantError::InvalidInput(_)),
-        "ERP 当前值为 NaN 应传播 InvalidInput，实际 {:?}",
+        matches!(
+            err,
+            QuantError::InvalidCurrentValue {
+                indicator: "ERP",
+                ..
+            }
+        ),
+        "ERP 当前值为 NaN 应传播 InvalidCurrentValue，实际 {:?}",
         err
     );
 }
 
-// ─── 边界：±Inf 当前读数（当前为未定义行为） ─────────────────────────────────
+// ─── 边界：±Inf 当前读数 ───────────────────────────────────────────────────
 
 #[test]
-fn infinite_current_is_accepted_as_extreme_percentile() {
-    // 边界（当前为未定义行为）：evaluate_fundamental 经 percentile_of 仅拦截 NaN，
-    // 不拦截 ±Inf。cape_current = +Inf → CAPE 分位 1.0（历史最贵）；
-    // erp_current = -Inf → ERP 分位 0.0，倒置后 1.0（历史最贵），综合得分应为 1.0。
-    // 若后续实现层加入有限性校验，应改为断言返回 QuantError::InvalidInput。
+fn infinite_current_returns_invalid_input() {
+    // 金融读数必须是有限数；±Inf 更像上游数据管道异常，而非合法极端估值。
     let cape_h = standard_history();
     let erp_h = standard_history();
     let cfg = balanced_test_config();
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: f64::INFINITY,
         erp_history: erp_h,
         erp_current: f64::NEG_INFINITY,
     };
 
-    let sig = evaluate_fundamental(&snapshot, &cfg).unwrap();
-    assert_eq!(
-        sig.cape_percentile.value(),
-        MAX_PERCENTILE,
-        "+Inf CAPE 当前被当作历史最高位"
-    );
-    assert_eq!(
-        sig.erp_percentile.value(),
-        MIN_PERCENTILE,
-        "-Inf ERP 当前被当作历史最低位"
-    );
-    assert_eq!(
-        sig.score.value(),
-        MAX_PERCENTILE,
-        "两端极值应合成出历史最贵得分 1.0"
+    let err = evaluate_fundamental(&snapshot, &cfg).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            QuantError::InvalidCurrentValue {
+                indicator: "CAPE",
+                ..
+            }
+        ),
+        "非有限当前读数应传播 InvalidCurrentValue，实际 {:?}",
+        err
     );
 }
 
-// ─── 边界：cape_weight 越界（当前为未定义行为，可能 panic） ──────────────────
+// ─── 边界：配置不变量 ───────────────────────────────────────────────────────
 
 #[test]
-#[should_panic(expected = "加权平均结果必然在 [0.0, 1.0]")]
-fn cape_weight_above_one_panics_on_out_of_range_score() {
-    // 边界（当前为未定义行为）：实现未校验 cape_weight ∈ [0,1]。
-    // cape_weight = 2.0 → composite = 2.0*cape_p + (1-2.0)*inverted_erp。
-    // 取 cape_p = 1.0、inverted_erp = 0.0 → composite = 2.0，越界触发
-    // Percentile::new(...).expect(...) panic。
-    // 若后续在 FundamentalConfig 构造处加入校验，应改为构造期返回错误并移除此 should_panic。
-    let cape_h = standard_history();
-    let erp_h = standard_history();
-    let cfg = FundamentalConfig {
-        cape_weight: 2.0,
-        min_history_len: TEST_MIN_HISTORY_LEN,
-    };
-
-    let snapshot = MarketSnapshot {
-        cape_history: cape_h,
-        cape_current: 100.0, // CAPE 分位 = 1.0
-        erp_history: erp_h,
-        erp_current: 100.0, // ERP 分位 = 1.0 → 倒置 = 0.0
-    };
-
-    let _ = evaluate_fundamental(&snapshot, &cfg);
+fn rejects_cape_weight_above_one_at_construction() {
+    let err = FundamentalConfig::new(2.0, TEST_MIN_HISTORY_LEN).unwrap_err();
+    assert!(
+        matches!(err, QuantError::InvalidWeight { .. }),
+        "cape_weight > 1.0 应在配置构造期被拒绝，实际 {:?}",
+        err
+    );
 }
 
 #[test]
-#[should_panic(expected = "加权平均结果必然在 [0.0, 1.0]")]
-fn cape_weight_below_zero_panics_on_out_of_range_score() {
-    // 边界（当前为未定义行为）：负权重同样未被校验。
-    // cape_weight = -1.0 → composite = -1.0*cape_p + 2.0*inverted_erp。
-    // 取 cape_p = 1.0、inverted_erp = 0.0 → composite = -1.0，越界触发 panic。
-    let cape_h = standard_history();
-    let erp_h = standard_history();
-    let cfg = FundamentalConfig {
-        cape_weight: -1.0,
-        min_history_len: TEST_MIN_HISTORY_LEN,
-    };
+fn rejects_cape_weight_below_zero_at_construction() {
+    let err = FundamentalConfig::new(-1.0, TEST_MIN_HISTORY_LEN).unwrap_err();
+    assert!(
+        matches!(err, QuantError::InvalidWeight { .. }),
+        "cape_weight < 0.0 应在配置构造期被拒绝，实际 {:?}",
+        err
+    );
+}
 
-    let snapshot = MarketSnapshot {
-        cape_history: cape_h,
-        cape_current: 100.0, // CAPE 分位 = 1.0
-        erp_history: erp_h,
-        erp_current: 100.0, // ERP 分位 = 1.0 → 倒置 = 0.0
-    };
-
-    let _ = evaluate_fundamental(&snapshot, &cfg);
+#[test]
+fn rejects_zero_min_history_len_at_construction() {
+    let err = FundamentalConfig::new(BALANCED_CAPE_WEIGHT, 0).unwrap_err();
+    assert!(
+        matches!(err, QuantError::InvalidMinHistoryLen { value: 0 }),
+        "min_history_len = 0 应在配置构造期被拒绝，实际 {:?}",
+        err
+    );
 }
 
 // ─── 边界：两个历史序列长度不一致（当前为未定义行为） ────────────────────────
 
 #[test]
 fn unequal_history_lengths_are_accepted() {
-    // 边界（当前为未定义行为）：MarketSnapshot 不要求两个历史序列等长。
+    // 边界（当前为未定义行为）：FundamentalSnapshot 不要求两个历史序列等长。
     // 各指标分位独立计算，只要各自有效点数 ≥ min_history_len 即成功。
     // 若后续实现层加入等长校验，应改为断言返回错误。
     let cape_h = standard_history(); // 100 点
     let erp_h = make_history(DEFAULT_MIN_HISTORY_LEN); // 60 点
     let cfg = balanced_test_config();
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
         cape_current: 50.0, // 50/100 = 0.50
         erp_history: erp_h,
@@ -386,12 +388,10 @@ fn unequal_history_lengths_are_accepted() {
 fn unequal_lengths_below_min_propagate_insufficient_for_short_series() {
     // 边界（当前为未定义行为）：不等长且较短序列 < min_history_len 时，
     // 错误应明确指向较短的那个指标（此处为 ERP），而非静默产出得分。
-    let cfg = FundamentalConfig {
-        cape_weight: BALANCED_CAPE_WEIGHT,
-        min_history_len: DEFAULT_MIN_HISTORY_LEN,
-    };
+    let cfg = FundamentalConfig::new(BALANCED_CAPE_WEIGHT, DEFAULT_MIN_HISTORY_LEN)
+        .expect("测试配置权重与历史长度有效");
 
-    let snapshot = MarketSnapshot {
+    let snapshot = FundamentalSnapshot {
         cape_history: standard_history(), // 充足
         cape_current: 50.0,
         erp_history: make_history(30), // 不足 60
