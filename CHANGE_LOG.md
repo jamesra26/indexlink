@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### 2026-06-20 19:38 UTC+10
+
+- 执行模型：Codex。
+- 变更类型：后端基础设施建设。
+- 涉及文件：
+  - `Cargo.toml`
+  - `.gitignore`
+  - `.env.example`
+  - `rust-toolchain.toml`
+  - `crates/storage/**`
+  - `crates/api/**`
+  - `apps/server/**`
+  - `deployment/**`
+  - `.github/workflows/rust-ci.yml`
+  - `readme.md`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 PostgreSQL storage、Axum API 与 server composition root 注册进 Rust 2021 workspace。
+  - 新增带连接超时和结构化错误的 PostgreSQL 连接池基础设施，不包含业务表或 repository。
+  - 新增 `/health` 与 `/ready`、统一安全错误响应、可替换 readiness 检查、Trace、CORS 配置入口与请求体上限。
+  - 新增环境配置、结构化日志、Ctrl+C/SIGTERM 优雅停机、多阶段 Dockerfile、本地 PostgreSQL Compose 与 Rust CI。
+  - 补充后端本地启动、环境变量、Docker Compose 和基础端点文档；未修改 `core-domain` 或 `quant-engine`。
+- 验证：
+  - 安装并使用 Rust/Cargo 1.96.0、rustfmt 与 clippy；`cargo check --workspace --locked` 通过。
+  - 新增后端 crate 的 `cargo fmt --check` 与严格 Clippy（`-D warnings`）通过。
+  - `cargo test --workspace --locked` 通过：56 项单元、集成与文档测试全部成功。
+  - `docker compose -f deployment/docker-compose.yml config` 通过；本机 Docker daemon 未安装/运行，镜像构建与 HTTP 实测未执行成功。
+  - workspace 全量 rustfmt/Clippy 被 `crates/core-domain/src/lib.rs` 的既有格式和两个 `double_must_use` lint 阻塞；按任务边界未修改该 crate。
+  - `git diff --check` 通过，且 `core-domain`、`quant-engine` 最终均无修改。
+
 ### 2026-06-20 14:05 UTC+10
 
 - 执行模型：GPT-5.5。

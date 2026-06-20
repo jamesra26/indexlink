@@ -3,6 +3,9 @@ resolver = "2"
 members = [
     "crates/core-domain",
     "crates/quant-engine",
+    "crates/storage",
+    "crates/api",
+    "apps/server",
 ]
 
 [workspace.package]
@@ -11,3 +14,17 @@ edition = "2021"
 
 [workspace.dependencies]
 core-domain = { path = "crates/core-domain" }
+indexlink-storage = { path = "crates/storage" }
+indexlink-api = { path = "crates/api" }
+async-trait = "0.1"
+axum = "0.7"
+dotenvy = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio-rustls"] }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "limit", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

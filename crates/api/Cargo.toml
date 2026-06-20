@@ -1,0 +1,19 @@
+[package]
+name = "indexlink-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+axum.workspace = true
+indexlink-storage.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+http-body-util = "0.1"
+serde_json.workspace = true
+tokio.workspace = true
+tower.workspace = true

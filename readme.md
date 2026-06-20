@@ -216,3 +216,53 @@ indexlink/
 - **自适应 ≠ 择时**：本系统只测量价格在历史分布中的「位置」，**不声称**判断市场「低估 / 高估」，更无法保证「买在低点」。
 - **风险自负**：在接入真实券商 API 进行实盘交易前，请充分理解代码逻辑与潜在风险，并自行进行充分测试。作者不对因使用本软件造成的任何直接或间接损失负责。
 - **合规提醒**：自动化交易可能受所在国家/地区法律法规及券商条款约束，使用前请确认合规性。
+
+---
+
+## 后端基础设施（第一阶段）
+
+当前后端已提供 PostgreSQL 连接池、HTTP 服务、健康检查、就绪检查、结构化日志、优雅停机和本地 Docker Compose 环境。此阶段尚未连接 Qwen、券商、交易、调度或 Decision Engine。
+
+### 本地启动
+
+1. 安装当前 stable Rust 工具链以及 `rustfmt`、`clippy`。
+2. 启动本地 PostgreSQL，并复制示例配置：
+
+   ```bash
+   cp .env.example .env
+   cargo run -p indexlink-server
+   ```
+
+3. 验证服务：
+
+   ```bash
+   curl http://localhost:8080/health
+   curl http://localhost:8080/ready
+   ```
+
+`.env` 仅供本地使用且已被 Git 忽略。主要环境变量如下：
+
+| 变量 | 默认示例 | 说明 |
+| :--- | :--- | :--- |
+| `APP_HOST` | `0.0.0.0` | HTTP 监听地址 |
+| `APP_PORT` | `8080` | HTTP 监听端口 |
+| `RUST_LOG` | `info,indexlink_server=debug` | 日志过滤规则 |
+| `DATABASE_URL` | `postgres://indexlink:indexlink@localhost:5432/indexlink` | PostgreSQL 连接地址；必须设置 |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | 逗号分隔的允许来源 |
+| `DATABASE_MAX_CONNECTIONS` | `10` | 连接池上限 |
+| `DATABASE_CONNECT_TIMEOUT_SECONDS` | `5` | 启动连接超时秒数 |
+
+### Docker Compose
+
+以下默认账号密码只适用于本地开发，不得用于生产环境：
+
+```bash
+docker compose -f deployment/docker-compose.yml up --build -d
+docker compose -f deployment/docker-compose.yml ps
+docker compose -f deployment/docker-compose.yml down
+```
+
+### 基础端点
+
+- `GET /health`：只检查服务进程是否存活，不访问数据库。
+- `GET /ready`：执行 PostgreSQL 存活检查；数据库不可用时返回 HTTP `503` 和不含内部错误的统一 JSON 响应。
