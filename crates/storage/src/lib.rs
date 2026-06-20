@@ -19,6 +19,14 @@ pub struct Storage {
 }
 
 impl Storage {
+    /// 使用调用方提供的 PostgreSQL 连接池构建存储句柄。
+    ///
+    /// 适用于由 composition root 统一配置连接池，或使用 lazy pool 进行隔离测试的场景。
+    #[must_use]
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
     /// 使用默认连接池参数连接 PostgreSQL。
     ///
     /// # 错误
@@ -118,6 +126,8 @@ pub enum StorageError {
 mod tests {
     use super::*;
 
+    const SECRET_DATABASE_URL: &str = "not a postgres URL containing user:secret-password";
+
     #[tokio::test]
     async fn rejects_zero_max_connections_without_contacting_database() {
         let error = Storage::connect_with_options(
@@ -144,5 +154,79 @@ mod tests {
 
         assert!(matches!(error, StorageError::InvalidConfiguration(_)));
         assert!(!error.to_string().contains("unused"));
+    }
+
+    #[tokio::test]
+    async fn connect_rejects_invalid_url_without_exposing_input() {
+        let error = Storage::connect(SECRET_DATABASE_URL)
+            .await
+            .expect_err("invalid URL must be rejected before connecting");
+
+        assert!(matches!(error, StorageError::InvalidDatabaseUrl(_)));
+        let display = error.to_string();
+        assert_eq!(display, "database URL is invalid");
+        assert!(!display.contains("secret-password"));
+        assert!(!display.contains(SECRET_DATABASE_URL));
+    }
+
+    #[tokio::test]
+    async fn pool_returns_lazy_pool_without_contacting_database() {
+        let pool = PgPoolOptions::new().connect_lazy_with(
+            sqlx::postgres::PgConnectOptions::new()
+                .host("localhost")
+                .database("indexlink-test"),
+        );
+        let storage = Storage::from_pool(pool);
+
+        assert!(!storage.pool().is_closed());
+        assert_eq!(storage.pool().size(), 0);
+    }
+
+    #[tokio::test]
+    async fn ping_maps_closed_pool_to_safe_ping_error() {
+        let pool = PgPoolOptions::new().connect_lazy_with(
+            sqlx::postgres::PgConnectOptions::new()
+                .host("localhost")
+                .database("indexlink-test"),
+        );
+        let storage = Storage::from_pool(pool);
+        storage.pool().close().await;
+
+        let error = storage
+            .ping()
+            .await
+            .expect_err("closed pool must fail readiness ping");
+        assert!(matches!(error, StorageError::Ping(sqlx::Error::PoolClosed)));
+        assert_eq!(error.to_string(), "database ping failed");
+    }
+
+    #[test]
+    fn storage_error_display_is_stable_and_safe() {
+        let cases = [
+            (
+                StorageError::InvalidConfiguration(
+                    "database max connections must be greater than zero",
+                ),
+                "invalid storage configuration: database max connections must be greater than zero",
+            ),
+            (
+                StorageError::ConnectionTimeout { seconds: 5 },
+                "database connection timed out after 5 seconds",
+            ),
+            (
+                StorageError::Connection(sqlx::Error::PoolClosed),
+                "failed to connect to database",
+            ),
+            (
+                StorageError::Ping(sqlx::Error::PoolClosed),
+                "database ping failed",
+            ),
+        ];
+
+        for (error, expected) in cases {
+            assert_eq!(error.to_string(), expected);
+            assert!(!error.to_string().contains("postgres://"));
+            assert!(!error.to_string().contains("password"));
+        }
     }
 }
