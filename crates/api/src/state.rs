@@ -1,0 +1,86 @@
+use std::{fmt, sync::Arc};
+
+use async_trait::async_trait;
+use indexlink_storage::Storage;
+
+enum ReadinessBackend {
+    Storage(Storage),
+    Custom(Arc<dyn ReadinessCheck>),
+}
+
+impl fmt::Debug for ReadinessBackend {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Storage(_) => formatter.write_str("Storage"),
+            Self::Custom(_) => formatter.write_str("CustomReadinessCheck"),
+        }
+    }
+}
+
+/// HTTP API 的共享应用状态。
+#[derive(Clone, Debug)]
+pub struct ApiState {
+    readiness: Arc<ReadinessBackend>,
+    version: Arc<str>,
+}
+
+impl ApiState {
+    /// 使用生产 PostgreSQL 存储构建应用状态。
+    #[must_use]
+    pub fn new(storage: Storage, version: impl Into<Arc<str>>) -> Self {
+        Self {
+            readiness: Arc::new(ReadinessBackend::Storage(storage)),
+            version: version.into(),
+        }
+    }
+
+    /// 使用可替换的 readiness 检查构建状态，供隔离测试和受控适配器使用。
+    #[must_use]
+    pub fn with_readiness(
+        readiness: Arc<dyn ReadinessCheck>,
+        version: impl Into<Arc<str>>,
+    ) -> Self {
+        Self {
+            readiness: Arc::new(ReadinessBackend::Custom(readiness)),
+            version: version.into(),
+        }
+    }
+
+    pub(crate) async fn check_readiness(&self) -> Result<(), ReadinessError> {
+        match self.readiness.as_ref() {
+            ReadinessBackend::Storage(storage) => storage
+                .ping()
+                .await
+                .map_err(|error| ReadinessError::new(error.to_string())),
+            ReadinessBackend::Custom(check) => check.check().await,
+        }
+    }
+
+    pub(crate) fn version(&self) -> &str {
+        self.version.as_ref()
+    }
+}
+
+/// 可替换的服务就绪检查。
+#[async_trait]
+pub trait ReadinessCheck: Send + Sync {
+    /// 检查依赖是否可用。
+    async fn check(&self) -> Result<(), ReadinessError>;
+}
+
+/// readiness 检查的内部错误。
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct ReadinessError {
+    message: String,
+}
+
+impl ReadinessError {
+    /// 创建内部 readiness 错误。
+    #[must_use]
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
