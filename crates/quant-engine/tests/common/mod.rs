@@ -45,10 +45,7 @@ pub fn standard_history() -> Vec<f64> {
 }
 
 pub fn test_config(cape_weight: f64) -> FundamentalConfig {
-    FundamentalConfig {
-        cape_weight,
-        min_history_len: TEST_MIN_HISTORY_LEN,
-    }
+    FundamentalConfig::new(cape_weight, TEST_MIN_HISTORY_LEN).expect("测试配置权重与历史长度有效")
 }
 
 pub fn balanced_test_config() -> FundamentalConfig {
