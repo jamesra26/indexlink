@@ -2,14 +2,14 @@
 //!
 //! 使用 CAPE 与 ERP 的历史分位合成基本面位置锚。
 
-use std::num::NonZeroUsize;
-
 use core_domain::Percentile;
 
-use crate::{percentile_of, QuantError};
+use crate::{weighted_percentile_of, EwPercentileConfig, QuantError};
 
 /// 默认 CAPE/ERP 均衡权重。
 const DEFAULT_CAPE_WEIGHT: f64 = 0.5;
+/// 默认指数加权分位半衰期：36 个月月度数据。
+const DEFAULT_HALF_LIFE_MONTHS: f64 = 36.0;
 /// 默认最少历史长度：5 年月度数据。
 const DEFAULT_MIN_HISTORY_LEN: usize = 60;
 
@@ -71,23 +71,21 @@ pub struct FundamentalConfig {
     /// CAPE 在综合基本面得分中的权重（另一部分为 ERP）。
     /// ERP 权重 = `1.0 - cape_weight`。
     pub cape_weight: Weight,
-    /// 计算分位所需的最少历史数据点数。
-    pub min_history_len: NonZeroUsize,
+    /// 指数加权历史分位的配置（半衰期 + 最少有效样本数）。
+    pub percentile_config: EwPercentileConfig,
 }
 
 impl FundamentalConfig {
     /// 构造第一层（70% 基本面）的配置参数。
     ///
-    /// `cape_weight` 必须在 `[0.0, 1.0]`；`min_history_len` 必须大于 0。
-    pub fn new(cape_weight: f64, min_history_len: usize) -> Result<Self, QuantError> {
-        let min_history_len =
-            NonZeroUsize::new(min_history_len).ok_or(QuantError::InvalidMinHistoryLen {
-                value: min_history_len,
-            })?;
-
+    /// `cape_weight` 必须在 `[0.0, 1.0]`；`percentile_config` 由调用方按数据频率构造。
+    pub fn new(
+        cape_weight: f64,
+        percentile_config: EwPercentileConfig,
+    ) -> Result<Self, QuantError> {
         Ok(Self {
             cape_weight: Weight::new(cape_weight)?,
-            min_history_len,
+            percentile_config,
         })
     }
 }
@@ -96,8 +94,11 @@ impl Default for FundamentalConfig {
     fn default() -> Self {
         Self {
             cape_weight: Weight::new(DEFAULT_CAPE_WEIGHT).expect("默认 CAPE 权重在 [0.0, 1.0]"),
-            min_history_len: NonZeroUsize::new(DEFAULT_MIN_HISTORY_LEN)
-                .expect("默认最少历史长度大于 0"),
+            percentile_config: EwPercentileConfig::from_half_life(
+                DEFAULT_HALF_LIFE_MONTHS,
+                DEFAULT_MIN_HISTORY_LEN,
+            )
+            .expect("默认半衰期与最少历史长度有效"),
         }
     }
 }
@@ -144,18 +145,18 @@ pub fn evaluate_fundamental(
     snapshot: &FundamentalSnapshot,
     config: &FundamentalConfig,
 ) -> Result<FundamentalSignal, QuantError> {
-    let cape_p = percentile_of(
+    let cape_p = weighted_percentile_of(
         "CAPE",
         &snapshot.cape_history,
         snapshot.cape_current,
-        config.min_history_len.get(),
+        &config.percentile_config,
     )?;
 
-    let erp_p = percentile_of(
+    let erp_p = weighted_percentile_of(
         "ERP",
         &snapshot.erp_history,
         snapshot.erp_current,
-        config.min_history_len.get(),
+        &config.percentile_config,
     )?;
 
     let cape_weight = config.cape_weight.value();
