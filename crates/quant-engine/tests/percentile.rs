@@ -6,7 +6,14 @@ use common::{
     make_history, standard_history, DEFAULT_MIN_HISTORY_LEN, MAX_PERCENTILE, MIN_PERCENTILE,
     NEUTRAL_PERCENTILE, STANDARD_HISTORY_LEN, TEST_MIN_HISTORY_LEN,
 };
-use quant_engine::{percentile_of, QuantError};
+use quant_engine::{percentile_of, weighted_percentile_of, EwPercentileConfig, QuantError};
+
+fn assert_close(actual: f64, expected: f64, tolerance: f64) {
+    assert!(
+        (actual - expected).abs() <= tolerance,
+        "expected {expected}, got {actual}"
+    );
+}
 
 #[test]
 fn percentile_of_median() {
@@ -106,6 +113,137 @@ fn duplicate_values_use_less_than_or_equal() {
 }
 
 #[test]
+fn ew_percentile_config_from_half_life_maps_to_alpha() {
+    let cfg = EwPercentileConfig::from_half_life(2.0, TEST_MIN_HISTORY_LEN).unwrap();
+
+    assert_close((1.0_f64 - cfg.alpha()).powf(2.0), 0.5, 1e-12);
+    assert_eq!(cfg.min_len(), TEST_MIN_HISTORY_LEN);
+}
+
+#[test]
+fn ew_percentile_config_rejects_invalid_half_life() {
+    let err = EwPercentileConfig::from_half_life(0.0, TEST_MIN_HISTORY_LEN).unwrap_err();
+    assert!(matches!(err, QuantError::InvalidHalfLife { value: 0.0 }));
+
+    let err = EwPercentileConfig::from_half_life(f64::NAN, TEST_MIN_HISTORY_LEN).unwrap_err();
+    assert!(matches!(err, QuantError::InvalidHalfLife { value } if value.is_nan()));
+}
+
+#[test]
+fn ew_percentile_config_rejects_invalid_alpha_and_min_len() {
+    let err = EwPercentileConfig::from_alpha(0.0, TEST_MIN_HISTORY_LEN).unwrap_err();
+    assert!(matches!(err, QuantError::InvalidDecay { alpha: 0.0 }));
+
+    let err = EwPercentileConfig::from_alpha(1.1, TEST_MIN_HISTORY_LEN).unwrap_err();
+    assert!(matches!(err, QuantError::InvalidDecay { alpha: 1.1 }));
+
+    let err = EwPercentileConfig::from_alpha(0.5, 0).unwrap_err();
+    assert!(matches!(err, QuantError::InvalidMinHistoryLen { value: 0 }));
+}
+
+#[test]
+fn weighted_percentile_is_monotonic_in_current_value() {
+    let h = standard_history();
+    let cfg = EwPercentileConfig::from_alpha(0.5, TEST_MIN_HISTORY_LEN).unwrap();
+
+    let low = weighted_percentile_of("T", &h, 25.0, &cfg).unwrap();
+    let high = weighted_percentile_of("T", &h, 75.0, &cfg).unwrap();
+
+    assert!(
+        low <= high,
+        "current 增大时加权分位不应下降：low {} high {}",
+        low,
+        high
+    );
+}
+
+#[test]
+fn weighted_percentile_weights_recent_samples_more() {
+    let cfg = EwPercentileConfig::from_alpha(0.5, 1).unwrap();
+
+    let low_is_recent = vec![100.0, 0.0];
+    let high_is_recent = vec![0.0, 100.0];
+
+    let recent_low = weighted_percentile_of("T", &low_is_recent, 50.0, &cfg).unwrap();
+    let recent_high = weighted_percentile_of("T", &high_is_recent, 50.0, &cfg).unwrap();
+
+    assert_close(recent_low.value(), 2.0 / 3.0, 1e-12);
+    assert_close(recent_high.value(), 1.0 / 3.0, 1e-12);
+    assert!(
+        recent_low > recent_high,
+        "旧→新顺序应影响权重：最近低值应给出更高分位"
+    );
+}
+
+#[test]
+fn weighted_percentile_skips_nan_without_compressing_lag() {
+    let h = vec![0.0, f64::NAN, 100.0];
+    let cfg = EwPercentileConfig::from_alpha(0.5, 1).unwrap();
+
+    let p = weighted_percentile_of("T", &h, 50.0, &cfg).unwrap();
+
+    // 最新 100 权重 1.0；中间 NaN 跳过但仍占一个时间 lag；
+    // 最旧 0 权重 0.25。因此分位 = 0.25 / (1.0 + 0.25) = 0.2。
+    assert_close(p.value(), 0.2, 1e-12);
+}
+
+#[test]
+fn weighted_percentile_softens_oldest_sample_drop() {
+    let cfg = EwPercentileConfig::from_alpha(0.5, 1).unwrap();
+    let with_old_low = vec![0.0, 100.0, 100.0, 100.0, 100.0, 100.0];
+    let without_old_low = vec![100.0, 100.0, 100.0, 100.0, 100.0];
+
+    let before = weighted_percentile_of("T", &with_old_low, 50.0, &cfg).unwrap();
+    let after = weighted_percentile_of("T", &without_old_low, 50.0, &cfg).unwrap();
+
+    assert!(
+        (before.value() - after.value()).abs() < 0.05,
+        "最旧端样本退出时，加权分位应只发生小幅变化：before {} after {}",
+        before,
+        after
+    );
+}
+
+#[test]
+fn weighted_percentile_propagates_invalid_current_and_insufficient_history() {
+    let cfg = EwPercentileConfig::from_alpha(0.5, TEST_MIN_HISTORY_LEN).unwrap();
+
+    let err = weighted_percentile_of("T", &standard_history(), f64::INFINITY, &cfg).unwrap_err();
+    assert!(matches!(
+        err,
+        QuantError::InvalidCurrentValue { indicator: "T", .. }
+    ));
+
+    let err = weighted_percentile_of("T", &[1.0, 2.0, f64::NAN], 2.0, &cfg).unwrap_err();
+    assert!(matches!(
+        err,
+        QuantError::InsufficientHistory {
+            indicator: "T",
+            found: 2,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn weighted_percentile_returns_insufficient_when_all_valid_weights_underflow() {
+    // alpha = 1.0 时，最新样本之后的历史权重都为 0。若最新样本是 NaN，
+    // 旧端有效样本会通过有效样本数检查，但总有效权重仍为 0。
+    let cfg = EwPercentileConfig::from_alpha(1.0, 1).unwrap();
+
+    let err = weighted_percentile_of("T", &[42.0, f64::NAN], 50.0, &cfg).unwrap_err();
+
+    assert_eq!(
+        err,
+        QuantError::InsufficientHistory {
+            indicator: "T",
+            required: 1,
+            found: 0,
+        }
+    );
+}
+
+#[test]
 fn all_nan_history_returns_insufficient() {
     // 全部为 NaN，过滤后有效数据为 0，应判定历史不足而非 panic。
     let h = vec![f64::NAN; STANDARD_HISTORY_LEN];
@@ -195,5 +333,17 @@ fn quant_error_display_is_descriptive() {
     assert_eq!(
         invalid_weight.to_string(),
         "weight must be finite and in [0.0, 1.0], got 1.5"
+    );
+
+    let invalid_half_life = QuantError::InvalidHalfLife { value: 0.0 };
+    assert_eq!(
+        invalid_half_life.to_string(),
+        "half_life must be finite and greater than 0, got 0"
+    );
+
+    let invalid_decay = QuantError::InvalidDecay { alpha: 1.1 };
+    assert_eq!(
+        invalid_decay.to_string(),
+        "decay alpha must be finite and in (0.0, 1.0], got 1.1"
     );
 }

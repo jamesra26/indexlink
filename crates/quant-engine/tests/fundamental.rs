@@ -3,26 +3,30 @@
 mod common;
 
 use common::{
-    balanced_test_config, make_history, standard_history, test_config, BALANCED_CAPE_WEIGHT,
-    CAPE_ONLY_WEIGHT, CHEAP_SCORE_UPPER_BOUND, DEFAULT_MIN_HISTORY_LEN, ERP_ONLY_WEIGHT,
-    EXACT_FLOAT_TOLERANCE, EXPENSIVE_SCORE_LOWER_BOUND, MAX_PERCENTILE, NEUTRAL_PERCENTILE,
-    NEUTRAL_TOLERANCE, TEST_MIN_HISTORY_LEN, VERY_LOW_PERCENTILE_UPPER_BOUND,
+    balanced_test_config, make_history, standard_history, test_config, test_percentile_config,
+    BALANCED_CAPE_WEIGHT, CAPE_ONLY_WEIGHT, CHEAP_SCORE_UPPER_BOUND, DEFAULT_HALF_LIFE_MONTHS,
+    DEFAULT_MIN_HISTORY_LEN, ERP_ONLY_WEIGHT, EXACT_FLOAT_TOLERANCE, EXPENSIVE_SCORE_LOWER_BOUND,
+    MAX_PERCENTILE, MIN_PERCENTILE, NEUTRAL_PERCENTILE, NEUTRAL_TOLERANCE,
+    VERY_LOW_PERCENTILE_UPPER_BOUND,
 };
 use quant_engine::{
-    evaluate_fundamental, FundamentalConfig, FundamentalSnapshot, QuantError, Weight,
+    evaluate_fundamental, weighted_percentile_of, EwPercentileConfig, FundamentalConfig,
+    FundamentalSnapshot, QuantError, Weight,
 };
 
 #[test]
 fn fundamental_expensive_market() {
+    // 极端贵：CAPE 高于全部历史（加权分位 → 1.0），ERP 低于全部历史
+    // （加权分位 → 0.0，倒置后 → 1.0）。方向性对任意半衰期都稳健。
     let cape_h: Vec<f64> = (1..=100).map(|i| i as f64 * 10.0).collect();
     let erp_h: Vec<f64> = (1..=100).map(|i| i as f64 * 0.1).collect();
     let cfg = balanced_test_config();
 
     let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
-        cape_current: 900.0,
+        cape_current: 100_000.0,
         erp_history: erp_h,
-        erp_current: 1.0,
+        erp_current: 0.001,
     };
 
     let sig = evaluate_fundamental(&snapshot, &cfg).unwrap();
@@ -35,15 +39,17 @@ fn fundamental_expensive_market() {
 
 #[test]
 fn fundamental_cheap_market() {
+    // 极端便宜：CAPE 低于全部历史（加权分位 → 0.0），ERP 高于全部历史
+    // （加权分位 → 1.0，倒置后 → 0.0）。方向性对任意半衰期都稳健。
     let cape_h: Vec<f64> = (1..=100).map(|i| i as f64 * 10.0).collect();
     let erp_h: Vec<f64> = (1..=100).map(|i| i as f64 * 0.1).collect();
     let cfg = balanced_test_config();
 
     let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
-        cape_current: 100.0,
+        cape_current: 1.0,
         erp_history: erp_h,
-        erp_current: 9.0,
+        erp_current: 100.0,
     };
 
     let sig = evaluate_fundamental(&snapshot, &cfg).unwrap();
@@ -62,9 +68,9 @@ fn fundamental_neutral_market() {
 
     let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
-        cape_current: 50.0,
+        cape_current: 71.0,
         erp_history: erp_h,
-        erp_current: 50.0,
+        erp_current: 71.0,
     };
 
     let sig = evaluate_fundamental(&snapshot, &cfg).unwrap();
@@ -87,16 +93,16 @@ fn rate_repricing_low_erp_pushes_score_expensive_despite_neutral_cape() {
 
     let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
-        cape_current: 50.0, // CAPE 分位 = 0.50（中性）
+        cape_current: 88.0, // 加权 CAPE 分位 ≈ 0.50（中性）
         erp_history: erp_h,
-        erp_current: 5.0, // ERP 分位 = 0.05（历史极低，风险补偿被压缩）
+        erp_current: 5.0, // 加权 ERP 分位处于历史极低位，风险补偿被压缩
     };
 
     let sig = evaluate_fundamental(&snapshot, &cfg).unwrap();
 
-    // CAPE 维度确实中性。
+    // CAPE 维度确实中性（加权 ECDF 因截断尾项无法精确等于 0.5，用近似容差）。
     assert!(
-        (sig.cape_percentile.value() - NEUTRAL_PERCENTILE).abs() < EXACT_FLOAT_TOLERANCE,
+        (sig.cape_percentile.value() - NEUTRAL_PERCENTILE).abs() < NEUTRAL_TOLERANCE,
         "CAPE 应处于历史中性，实际 {}",
         sig.cape_percentile
     );
@@ -122,10 +128,18 @@ fn rate_repricing_low_erp_pushes_score_expensive_despite_neutral_cape() {
 
 #[test]
 fn default_config_matches_readme_contract() {
-    // 默认配置应为：CAPE/ERP 各半，5 年（60）月度历史下限。
+    // 默认配置应为：CAPE/ERP 各半，指数加权分位半衰期 36 个月，
+    // 且至少需要 5 年（60）月度有效历史数据。
     let cfg = FundamentalConfig::default();
     assert_eq!(cfg.cape_weight.value(), BALANCED_CAPE_WEIGHT);
-    assert_eq!(cfg.min_history_len.get(), DEFAULT_MIN_HISTORY_LEN);
+    assert_eq!(cfg.percentile_config.min_len(), DEFAULT_MIN_HISTORY_LEN);
+
+    let expected_alpha = 1.0 - 0.5_f64.powf(1.0 / DEFAULT_HALF_LIFE_MONTHS);
+    assert!(
+        (cfg.percentile_config.alpha() - expected_alpha).abs() < EXACT_FLOAT_TOLERANCE,
+        "默认半衰期 36 个月应映射为 alpha {expected_alpha}，实际 {}",
+        cfg.percentile_config.alpha()
+    );
 }
 
 #[test]
@@ -159,7 +173,7 @@ fn erp_percentile_audit_field_is_not_inverted() {
         cape_history: cape_h,
         cape_current: 10.0,
         erp_history: erp_h,
-        erp_current: 90.0, // 高 ERP
+        erp_current: 9999.0, // 极高 ERP
     };
 
     let sig = evaluate_fundamental(&snapshot, &cfg).unwrap();
@@ -185,14 +199,14 @@ fn audit_fields_reflect_raw_percentiles() {
 
     let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
-        cape_current: 30.0,
+        cape_current: 0.0,
         erp_history: erp_h,
-        erp_current: 70.0,
+        erp_current: 9999.0,
     };
 
     let sig = evaluate_fundamental(&snapshot, &cfg).unwrap();
-    assert_eq!(sig.cape_percentile.value(), 0.30);
-    assert_eq!(sig.erp_percentile.value(), 0.70);
+    assert_eq!(sig.cape_percentile.value(), MIN_PERCENTILE);
+    assert_eq!(sig.erp_percentile.value(), MAX_PERCENTILE);
 }
 
 #[test]
@@ -325,7 +339,7 @@ fn infinite_current_returns_invalid_input() {
 
 #[test]
 fn rejects_cape_weight_above_one_at_construction() {
-    let err = FundamentalConfig::new(2.0, TEST_MIN_HISTORY_LEN).unwrap_err();
+    let err = FundamentalConfig::new(2.0, test_percentile_config()).unwrap_err();
     assert!(
         matches!(err, QuantError::InvalidWeight { .. }),
         "cape_weight > 1.0 应在配置构造期被拒绝，实际 {:?}",
@@ -335,7 +349,7 @@ fn rejects_cape_weight_above_one_at_construction() {
 
 #[test]
 fn rejects_cape_weight_below_zero_at_construction() {
-    let err = FundamentalConfig::new(-1.0, TEST_MIN_HISTORY_LEN).unwrap_err();
+    let err = FundamentalConfig::new(-1.0, test_percentile_config()).unwrap_err();
     assert!(
         matches!(err, QuantError::InvalidWeight { .. }),
         "cape_weight < 0.0 应在配置构造期被拒绝，实际 {:?}",
@@ -345,7 +359,7 @@ fn rejects_cape_weight_below_zero_at_construction() {
 
 #[test]
 fn rejects_zero_min_history_len_at_construction() {
-    let err = FundamentalConfig::new(BALANCED_CAPE_WEIGHT, 0).unwrap_err();
+    let err = EwPercentileConfig::from_half_life(DEFAULT_HALF_LIFE_MONTHS, 0).unwrap_err();
     assert!(
         matches!(err, QuantError::InvalidMinHistoryLen { value: 0 }),
         "min_history_len = 0 应在配置构造期被拒绝，实际 {:?}",
@@ -366,21 +380,27 @@ fn unequal_history_lengths_are_accepted() {
 
     let snapshot = FundamentalSnapshot {
         cape_history: cape_h,
-        cape_current: 50.0, // 50/100 = 0.50
+        cape_current: 50.0,
         erp_history: erp_h,
-        erp_current: 30.0, // 30/60 = 0.50
+        erp_current: 30.0,
     };
 
     let sig = evaluate_fundamental(&snapshot, &cfg).unwrap();
+    let expected_cape =
+        weighted_percentile_of("CAPE", &snapshot.cape_history, 50.0, &cfg.percentile_config)
+            .unwrap();
+    let expected_erp =
+        weighted_percentile_of("ERP", &snapshot.erp_history, 30.0, &cfg.percentile_config).unwrap();
+
     assert_eq!(
         sig.cape_percentile.value(),
-        NEUTRAL_PERCENTILE,
-        "CAPE 应按自身 100 点序列定位"
+        expected_cape.value(),
+        "CAPE 应按自身 100 点序列加权定位"
     );
     assert_eq!(
         sig.erp_percentile.value(),
-        NEUTRAL_PERCENTILE,
-        "ERP 应按自身 60 点序列定位"
+        expected_erp.value(),
+        "ERP 应按自身 60 点序列加权定位"
     );
 }
 
@@ -388,7 +408,10 @@ fn unequal_history_lengths_are_accepted() {
 fn unequal_lengths_below_min_propagate_insufficient_for_short_series() {
     // 边界（当前为未定义行为）：不等长且较短序列 < min_history_len 时，
     // 错误应明确指向较短的那个指标（此处为 ERP），而非静默产出得分。
-    let cfg = FundamentalConfig::new(BALANCED_CAPE_WEIGHT, DEFAULT_MIN_HISTORY_LEN)
+    let percentile_config =
+        EwPercentileConfig::from_half_life(DEFAULT_HALF_LIFE_MONTHS, DEFAULT_MIN_HISTORY_LEN)
+            .expect("默认半衰期与历史长度有效");
+    let cfg = FundamentalConfig::new(BALANCED_CAPE_WEIGHT, percentile_config)
         .expect("测试配置权重与历史长度有效");
 
     let snapshot = FundamentalSnapshot {

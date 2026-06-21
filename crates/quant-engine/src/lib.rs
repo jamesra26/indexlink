@@ -17,7 +17,7 @@ pub mod trend;
 pub use fundamental::{
     evaluate_fundamental, FundamentalConfig, FundamentalSignal, FundamentalSnapshot, Weight,
 };
-pub use percentile::percentile_of;
+pub use percentile::{percentile_of, weighted_percentile_of, EwPercentileConfig};
 pub use trend::{evaluate_trend_stub, TrendSignal};
 
 // ─── 错误类型 ────────────────────────────────────────────────────────────────
@@ -37,6 +37,10 @@ pub enum QuantError {
     InvalidMinHistoryLen { value: usize },
     /// 当前指标读数无效。
     InvalidCurrentValue { indicator: &'static str, value: f64 },
+    /// 指数加权分位的半衰期无效（非有限数或 ≤ 0）。
+    InvalidHalfLife { value: f64 },
+    /// 指数加权分位的衰减系数无效（不在 `(0.0, 1.0]`）。
+    InvalidDecay { alpha: f64 },
 }
 
 impl std::fmt::Display for QuantError {
@@ -60,6 +64,18 @@ impl std::fmt::Display for QuantError {
             }
             Self::InvalidCurrentValue { indicator, value } => {
                 write!(f, "{indicator} current value must be finite, got {value}")
+            }
+            Self::InvalidHalfLife { value } => {
+                write!(
+                    f,
+                    "half_life must be finite and greater than 0, got {value}"
+                )
+            }
+            Self::InvalidDecay { alpha } => {
+                write!(
+                    f,
+                    "decay alpha must be finite and in (0.0, 1.0], got {alpha}"
+                )
             }
         }
     }

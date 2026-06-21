@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+### 2026-06-21 21:15 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：测试补强（覆盖率修补）。
+- 涉及文件：
+  - `crates/quant-engine/tests/percentile.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 调查 `cargo llvm-cov -p quant-engine --summary-only --show-missing-lines` 报告，确认缺失覆盖集中在 `weighted_percentile_of` 的总有效权重下溢防御分支。
+  - 新增 `weighted_percentile_returns_insufficient_when_all_valid_weights_underflow`，构造 `alpha = 1.0`、最新样本为 `NaN`、旧端有效样本权重归零的场景，锁定该分支返回 `QuantError::InsufficientHistory`。
+- 验证：
+  - `cargo fmt -p quant-engine` 通过。
+  - `cargo test -p quant-engine` 通过：20 个 fundamental 测试、25 个 percentile 测试、1 个 trend 测试、1 个 doc test 全部通过。
+  - `cargo llvm-cov -p quant-engine --summary-only --show-missing-lines` 通过：Region / Function / Line 覆盖率均为 100.00%，缺失行清零。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-06-21 21:02 UTC+10
+
+- 执行模型：Claude Opus 4.8。
+- 变更类型：功能实现（指数加权 ECDF）+ 配套测试修正。
+- 涉及文件：
+  - `crates/quant-engine/src/lib.rs`
+  - `crates/quant-engine/src/percentile.rs`
+  - `crates/quant-engine/src/fundamental/mod.rs`
+  - `crates/quant-engine/tests/fundamental.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - `lib.rs`：`QuantError` 新增 `InvalidHalfLife { value }` 与 `InvalidDecay { alpha }` 两个结构化分支及对应 `Display`；根级导出 `weighted_percentile_of` 与 `EwPercentileConfig`。
+  - `percentile.rs`：新增 `EwPercentileConfig`（`from_half_life` / `from_alpha` 双构造入口，`alpha = 1 - 0.5^(1/H)`，校验半衰期、衰减系数与 `min_len`）与 `weighted_percentile_of`；历史按「旧→新」加权，最新样本权重 1，NaN 跳过但不压缩滞后，并对有效样本不足与权重下溢返回 `InsufficientHistory`；保留原无权 `percentile_of` 不变。
+  - `fundamental/mod.rs`：`FundamentalConfig` 以 `percentile_config: EwPercentileConfig` 取代 `min_history_len`，`new` 改为接收 `EwPercentileConfig`，`Default` 采用半衰期 36 个月 + 最少 60 个有效月度样本；`evaluate_fundamental` 改用 `weighted_percentile_of`，ERP 倒置与合成逻辑保持不变。
+  - `tests/fundamental.rs`：将 `fundamental_expensive_market` / `fundamental_cheap_market` 的当前读数改为明确超出历史范围的极值，使方向性对任意半衰期稳健（修正旧位置分位魔法数字在加权下失真的问题）；`rate_repricing` 的 CAPE 中性断言由精确容差放宽为近似容差（加权 ECDF 因截断尾项无法精确等于 0.50）。
+- 验证：
+  - `cargo test -p quant-engine`：fundamental 20 + percentile 24 + trend 1 + doc 1 全部通过。
+  - `cargo test -p core-domain`：13 项单元测试通过。
+  - `cargo fmt -p quant-engine --check` 通过。
+  - `cargo clippy -p quant-engine --all-targets --all-features -- -D warnings` 通过。
+  - 改动源文件无 IDE linter 错误。
+
+### 2026-06-21 20:48 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：测试先行（指数加权 ECDF 契约）。
+- 涉及文件：
+  - `crates/quant-engine/tests/common/mod.rs`
+  - `crates/quant-engine/tests/fundamental.rs`
+  - `crates/quant-engine/tests/percentile.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 测试夹具改为通过 `EwPercentileConfig` 构造 `FundamentalConfig`，默认契约对齐 readme：指数加权 ECDF 半衰期 36 个月，最少 60 个有效月度历史点。
+  - `fundamental` 集成测试改为断言 `percentile_config`、加权中性位置、ERP 原始分位审计字段，以及新配置构造入口下的非法权重/历史长度错误。
+  - `percentile` 集成测试新增指数加权 ECDF 契约：半衰期到 alpha 映射、非法半衰期/衰减系数、单调性、旧→新顺序敏感、NaN 不压缩 lag、最旧样本退出时的平滑变化、错误传播和新增错误类型展示文案。
+  - 当前仅修改测试，生产实现尚未新增 `EwPercentileConfig`、`weighted_percentile_of`、`FundamentalConfig::percentile_config` 及对应 `QuantError` 分支。
+- 验证：
+  - `cargo fmt -p quant-engine --check` 通过。
+  - `cargo test -p quant-engine` 预期失败：生产代码尚未实现测试引用的新 API 与错误分支（`EwPercentileConfig`、`weighted_percentile_of`、`InvalidHalfLife`、`InvalidDecay`、`percentile_config`）。
+
+### 2026-06-21 20:18 UTC+10
+
+- 执行模型：Sonnet 4.6。
+- 变更类型：文档（设计决策更新）。
+- 涉及文件：
+  - `readme.md`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - **指数加权 ECDF**：将历史分位计算方法由无权 ECDF 升级为指数加权 ECDF；以半衰期为唯一旋钮（$\alpha = 1 - 0.5^{1/H}$，默认 $H$ = 36 个月月度数据），消除硬窗口「幽灵跌落」效应，同时保持无分布假设，输出仍为 `[0, 1]` 分位；更新决策管线说明、Quant Engine 模块职责描述、MVP 阶段落地描述。
+  - **双桶现金池（Two-Bucket Execution）**：在执行层引入副桶（Buffer Bucket）消除现金拖累；确立四条核心规则（副桶是弹药缓冲池、取出量受余额约束、副桶设累积上限、现金流策略可配置）；新增 `Conservative`（默认）/ `Aggressive` 两种策略对比表及资金流示意；在「分阶段落地」第 4 阶段中纳入双桶；在关键功能列表中新增双桶条目。
+  - 上述改动均为文档层面，未修改任何 Rust 代码。
+- 验证：
+  - 文档改动，未运行测试。
+
 ### 2026-06-20 21:36 UTC+10
 
 - 执行模型：Codex。
