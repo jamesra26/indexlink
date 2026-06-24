@@ -20,6 +20,10 @@
   - 模块文档记录当前 MVP 假设：单用户、仅 monthly、无计划级 timezone、不验证 symbol、不计算本期买入金额或双桶资金分配。
 - 验证：
   - `cargo test -p investment-plans` 通过：3 个 Decimal JSON 契约测试通过。
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
 
 ### 2026-06-24 23:30 UTC+10
 
