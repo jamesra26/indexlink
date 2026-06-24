@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### 2026-06-24 23:30 UTC+10
+
+- 执行模型：Claude。
+- 变更类型：test（AI 语义感知层：集成测试）。
+- 涉及文件：
+  - `crates/ai-client/tests/client.rs`
+  - `crates/ai-client/tests/provider.rs`
+  - `crates/ai-client/tests/sentiment.rs`
+- 变更内容：
+  - 本地 axum HTTP mock server 模拟千问，验证 `QwenClient` 请求格式、响应解析、错误降级全链路。
+  - `MockAiProvider` 关键词匹配测试（正向/负向/中性/自定义默认值）。
+  - `Sentiment` 边界测试（构造、范围、比较、f64 互转）。
+  - `AiConfig` 安全测试（api_key 不出现在 Debug/Display 中）。
+- 验证：
+  - `cargo test -p ai-client`：66 测试全部通过。
+
 ### 2026-06-24 23:15 UTC+10
 
 - 执行模型：Claude。
