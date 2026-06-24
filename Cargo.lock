@@ -777,11 +777,13 @@ dependencies = [
 name = "investment-plans"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "rust_decimal",
  "serde",
  "serde_json",
  "thiserror",
  "time",
+ "tokio",
  "uuid",
 ]
 

@@ -14,6 +14,9 @@
 //! 避免 JavaScript Number 或 JSON 浮点转换造成精度损失。领域类型不直接实现
 //! `Deserialize`；入站 adapter 应先反序列化到 DTO，再调用 `normalize()` 进入领域模型。
 
+use std::sync::Arc;
+
+use async_trait::async_trait;
 use rust_decimal::Decimal;
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -192,6 +195,93 @@ pub enum PlanValidationError {
     EmptyUpdate,
 }
 
+/// 投资计划 repository port。
+///
+/// 这是应用层依赖的 outbound port；PostgreSQL adapter 将在后续 PR 中实现。
+#[async_trait]
+pub trait InvestmentPlanRepository: Send + Sync {
+    /// 创建并持久化投资计划。
+    async fn create(
+        &self,
+        input: CreateInvestmentPlan,
+    ) -> Result<InvestmentPlan, PlanRepositoryError>;
+
+    /// 按固定顺序列出投资计划。
+    async fn list(&self) -> Result<Vec<InvestmentPlan>, PlanRepositoryError>;
+
+    /// 按 ID 查询投资计划。
+    async fn get(&self, id: Uuid) -> Result<InvestmentPlan, PlanRepositoryError>;
+}
+
+/// Repository port 的安全错误。
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PlanRepositoryError {
+    /// 计划不存在。
+    #[error("investment plan not found")]
+    NotFound,
+    /// 持久化后端暂不可用；不得包含数据库连接、SQL 或内部错误文本。
+    #[error("investment plan persistence is unavailable")]
+    Unavailable,
+}
+
+/// Investment Plan 应用服务。
+#[derive(Clone)]
+pub struct InvestmentPlanService {
+    repository: Arc<dyn InvestmentPlanRepository>,
+}
+
+impl InvestmentPlanService {
+    /// 创建服务。
+    #[must_use]
+    pub fn new(repository: Arc<dyn InvestmentPlanRepository>) -> Self {
+        Self { repository }
+    }
+
+    /// 创建投资计划。
+    ///
+    /// 先执行领域规范化与校验，再调用 repository port；不计算执行金额。
+    pub async fn create(
+        &self,
+        input: CreateInvestmentPlan,
+    ) -> Result<InvestmentPlan, PlanApplicationError> {
+        let input = input.normalize()?;
+        self.repository.create(input).await.map_err(Into::into)
+    }
+
+    /// 列出投资计划。
+    pub async fn list(&self) -> Result<Vec<InvestmentPlan>, PlanApplicationError> {
+        self.repository.list().await.map_err(Into::into)
+    }
+
+    /// 获取单个投资计划。
+    pub async fn get(&self, id: Uuid) -> Result<InvestmentPlan, PlanApplicationError> {
+        self.repository.get(id).await.map_err(Into::into)
+    }
+}
+
+/// 应用服务错误。
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PlanApplicationError {
+    /// 输入未通过领域校验。
+    #[error(transparent)]
+    Validation(#[from] PlanValidationError),
+    /// 计划不存在。
+    #[error("investment plan not found")]
+    NotFound,
+    /// 持久化后端暂不可用。
+    #[error("investment plan service is unavailable")]
+    Unavailable,
+}
+
+impl From<PlanRepositoryError> for PlanApplicationError {
+    fn from(error: PlanRepositoryError) -> Self {
+        match error {
+            PlanRepositoryError::NotFound => Self::NotFound,
+            PlanRepositoryError::Unavailable => Self::Unavailable,
+        }
+    }
+}
+
 fn normalize_non_empty(
     value: String,
     max_len: usize,
@@ -255,6 +345,7 @@ mod tests {
     use rust_decimal::Decimal;
     use serde::{Deserialize, Serialize};
     use serde_json::{json, Value};
+    use std::sync::Mutex;
 
     fn money(value: &str) -> Decimal {
         value.parse().unwrap()
@@ -269,6 +360,65 @@ mod tests {
             schedule_kind: ScheduleKind::Monthly,
             schedule_day: 15,
             max_single_execution: money("1500.00"),
+        }
+    }
+
+    fn plan_from(id: Uuid, input: CreateInvestmentPlan) -> InvestmentPlan {
+        let now = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+        InvestmentPlan {
+            id,
+            name: input.name,
+            symbol: input.symbol,
+            base_contribution: input.base_contribution,
+            currency: input.currency,
+            schedule_kind: input.schedule_kind,
+            schedule_day: input.schedule_day,
+            max_single_execution: input.max_single_execution,
+            is_active: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[derive(Default)]
+    struct FakeRepository {
+        plans: Mutex<Vec<InvestmentPlan>>,
+        fail: bool,
+    }
+
+    #[async_trait]
+    impl InvestmentPlanRepository for FakeRepository {
+        async fn create(
+            &self,
+            input: CreateInvestmentPlan,
+        ) -> Result<InvestmentPlan, PlanRepositoryError> {
+            if self.fail {
+                return Err(PlanRepositoryError::Unavailable);
+            }
+            let id = Uuid::from_u128((self.plans.lock().unwrap().len() + 1) as u128);
+            let plan = plan_from(id, input);
+            self.plans.lock().unwrap().push(plan.clone());
+            Ok(plan)
+        }
+
+        async fn list(&self) -> Result<Vec<InvestmentPlan>, PlanRepositoryError> {
+            if self.fail {
+                return Err(PlanRepositoryError::Unavailable);
+            }
+            Ok(self.plans.lock().unwrap().clone())
+        }
+
+        async fn get(&self, id: Uuid) -> Result<InvestmentPlan, PlanRepositoryError> {
+            if self.fail {
+                return Err(PlanRepositoryError::Unavailable);
+            }
+            self.plans
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|plan| plan.id == id)
+                .cloned()
+                .ok_or(PlanRepositoryError::NotFound)
         }
     }
 
@@ -379,5 +529,63 @@ mod tests {
 
         assert!(matches!(encoded["base_contribution"], Value::String(_)));
         assert!(matches!(encoded["max_single_execution"], Value::String(_)));
+    }
+
+    #[tokio::test]
+    async fn service_normalizes_create_input_before_persisting() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+
+        let plan = service.create(create_input()).await.unwrap();
+
+        assert_eq!(plan.name, "VOO monthly DCA");
+        assert_eq!(plan.symbol, "VOO");
+        assert_eq!(plan.currency, "USD");
+    }
+
+    #[tokio::test]
+    async fn service_rejects_invalid_create_before_repository() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let mut input = create_input();
+        input.schedule_day = 0;
+
+        assert_eq!(
+            service.create(input).await,
+            Err(PlanApplicationError::Validation(
+                PlanValidationError::InvalidScheduleDay
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn service_lists_and_gets_plans_through_repository() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+
+        let created = service.create(create_input()).await.unwrap();
+
+        assert_eq!(service.list().await.unwrap(), vec![created.clone()]);
+        assert_eq!(service.get(created.id).await.unwrap(), created);
+    }
+
+    #[tokio::test]
+    async fn service_maps_repository_errors_to_safe_application_errors() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+
+        assert_eq!(
+            service.get(Uuid::from_u128(99)).await,
+            Err(PlanApplicationError::NotFound)
+        );
+
+        let unavailable = InvestmentPlanService::new(Arc::new(FakeRepository {
+            plans: Mutex::default(),
+            fail: true,
+        }));
+        assert_eq!(
+            unavailable.list().await,
+            Err(PlanApplicationError::Unavailable)
+        );
+        assert_eq!(
+            unavailable.get(Uuid::from_u128(1)).await,
+            Err(PlanApplicationError::Unavailable)
+        );
     }
 }
