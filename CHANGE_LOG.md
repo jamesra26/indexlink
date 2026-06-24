@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### 2026-06-24 22:08 UTC+10
+
+- 执行模型：Codex。
+- 变更类型：chore/test（Investment Plan 模块与金额基础）。
+- PR 范围：PR 1A，仅建立 investment-plans crate 骨架与 Decimal JSON 契约；不实现领域模型、repository、migration、API 或执行逻辑。
+- 涉及文件：
+  - `Cargo.toml`
+  - `Cargo.lock`
+  - `crates/investment-plans/Cargo.toml`
+  - `crates/investment-plans/src/lib.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `investment-plans` workspace crate，作为投资计划领域与应用层边界。
+  - 声明 `rust_decimal` 依赖；`uuid`、`time` 与 SQLx 对应 feature 因 lockfile 行数限制留到后续更小 PR。
+  - 添加 Decimal JSON 字符串契约测试，确保金额从字符串反序列化并以字符串序列化，拒绝 JSON number。
+  - 模块文档记录当前 MVP 假设：单用户、仅 monthly、无计划级 timezone、不验证 symbol、不计算本期买入金额或双桶资金分配。
+- 验证：
+  - `cargo test -p investment-plans` 通过：3 个 Decimal JSON 契约测试通过。
+
 ### 2026-06-24 23:30 UTC+10
 
 - 执行模型：Claude。
