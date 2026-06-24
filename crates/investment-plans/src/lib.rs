@@ -409,6 +409,9 @@ mod tests {
         }
 
         async fn get(&self, id: Uuid) -> Result<InvestmentPlan, PlanRepositoryError> {
+            if self.fail {
+                return Err(PlanRepositoryError::Unavailable);
+            }
             self.plans
                 .lock()
                 .unwrap()
@@ -578,6 +581,10 @@ mod tests {
         }));
         assert_eq!(
             unavailable.list().await,
+            Err(PlanApplicationError::Unavailable)
+        );
+        assert_eq!(
+            unavailable.get(Uuid::from_u128(1)).await,
             Err(PlanApplicationError::Unavailable)
         );
     }
