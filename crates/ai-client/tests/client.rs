@@ -1,10 +1,11 @@
 //! QwenClient 集成测试。
 //!
-//! 使用本地 mock HTTP server 验证请求构造、响应解析和降级路径。
+//! 使用本地 mock HTTP server 验证请求构造、响应解析和错误传播。
 
 use std::net::SocketAddr;
 
-use ai_client::{AiConfig, AiProvider, QwenClient, Sentiment};
+use ai_client::{AiConfig, AiProvider, QwenClient};
+use axum::http::{HeaderMap, StatusCode};
 use axum::{routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -55,25 +56,47 @@ fn sentiment_response(value: f64) -> MockResponse {
 async fn spawn_mock_server() -> SocketAddr {
     let app = Router::new().route(
         "/v1/chat/completions",
-        post(|Json(body): Json<MockRequest>| async move {
-            // 验证请求包含必要字段
-            assert!(!body.model.is_empty());
-            assert!(!body.messages.is_empty());
-            assert_eq!(body.messages[0].role, "system");
+        post(
+            |headers: HeaderMap, Json(body): Json<MockRequest>| async move {
+                // 验证 Authorization 头
+                let auth_valid = headers
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|v| v.starts_with("Bearer "))
+                    .unwrap_or(false);
+                if !auth_valid {
+                    return (StatusCode::UNAUTHORIZED, Json(sentiment_response(0.0)));
+                }
 
-            // 根据用户输入的信号返回对应 sentiment
-            let user_content = &body.messages[1].content;
-            let sentiment = if user_content.contains("大幅上涨") || user_content.contains("利好")
-            {
-                0.7
-            } else if user_content.contains("大幅下跌") || user_content.contains("利空") {
-                -0.6
-            } else {
-                0.0
-            };
+                // 验证请求包含必要字段
+                assert!(!body.model.is_empty());
+                assert!(!body.messages.is_empty());
+                assert_eq!(body.messages[0].role, "system");
 
-            Json(sentiment_response(sentiment))
-        }),
+                let user_content = &body.messages[1].content;
+
+                // 特殊关键词触发 HTTP 错误，用于测试客户端错误传播
+                if user_content.contains("TRIGGER_500") {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(sentiment_response(0.0)),
+                    );
+                }
+
+                // 根据用户输入的信号返回对应 sentiment
+                let sentiment = if user_content.contains("大幅上涨")
+                    || user_content.contains("利好")
+                {
+                    0.7
+                } else if user_content.contains("大幅下跌") || user_content.contains("利空") {
+                    -0.6
+                } else {
+                    0.0
+                };
+
+                (StatusCode::OK, Json(sentiment_response(sentiment)))
+            },
+        ),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -153,7 +176,7 @@ async fn client_clamps_out_of_range_sentiment() {
 }
 
 #[tokio::test]
-async fn client_degradation_on_connection_refused() {
+async fn client_returns_error_on_connection_refused() {
     let config = AiConfig {
         base_url: "http://127.0.0.1:1".to_owned(), // 极不可能被占用的端口
         api_key: "test-key".to_owned(),
@@ -162,14 +185,13 @@ async fn client_degradation_on_connection_refused() {
     };
     let client = QwenClient::new(config);
     let result = client.analyze("新闻").await;
-    assert!(result.is_err());
-    // 降级
-    let safe = result.unwrap_or_else(|_| Sentiment::neutral());
-    assert_eq!(safe, Sentiment::NEUTRAL);
+    // ai-client 不自行降级——将错误原样返回给上层（decision engine），
+    // 由 engine 根据 70/20/10 → 90/10/0 策略决定如何处理。
+    assert!(result.is_err(), "连接被拒绝时应当返回错误，而非静默吞掉");
 }
 
 #[tokio::test]
-async fn client_degradation_on_http_error() {
+async fn client_returns_error_on_http_error() {
     let addr = spawn_mock_server().await;
     let config = AiConfig {
         base_url: format!("http://{addr}"),
@@ -178,10 +200,13 @@ async fn client_degradation_on_http_error() {
         ..Default::default()
     };
     let client = QwenClient::new(config);
-    // 正常调用应成功
-    let result = client.analyze("新闻").await;
-    let safe = result.unwrap_or_else(|_| Sentiment::neutral());
-    assert!(safe.value().is_finite());
+    // TRIGGER_500 让 mock server 返回 500 Internal Server Error
+    let result = client.analyze("TRIGGER_500").await;
+    // ai-client 不自行降级——将 HttpStatus 错误原样返回给上层
+    assert!(
+        result.is_err(),
+        "HTTP 500 应当被映射为错误并原样返回给调用方"
+    );
 }
 
 #[tokio::test]
@@ -194,8 +219,14 @@ async fn client_request_includes_bearer_auth() {
         ..Default::default()
     };
     let client = QwenClient::new(config);
-    let result = client.analyze("测试文本，不包含任何特殊关键词").await;
-    let safe = result.unwrap_or_else(|_| Sentiment::neutral());
-    // 中性新闻 → 近 0
-    assert!(safe.value().abs() < 0.01);
+    // Mock server 会验证 Authorization: Bearer <key> 头
+    // — 缺少或格式错误时返回 401 UNAUTHORIZED
+    // — 正确时返回 200 OK，说明客户端确实发送了正确的 Bearer auth
+    let result = client.analyze("中性新闻，无特殊关键词").await;
+    assert!(
+        result.is_ok(),
+        "Mock server 返回了 200，说明 Authorization header 已正确发送"
+    );
+    let sentiment = result.unwrap();
+    assert!(sentiment.value().abs() < f64::EPSILON);
 }

@@ -1,6 +1,6 @@
 //! Sentiment newtype 集成测试。
 //!
-//! 验证构造器、clamp 边界行为、格式化和安全降级路径。
+//! 验证构造器、clamp 边界行为、格式化和语义值。
 
 use ai_client::Sentiment;
 
@@ -32,7 +32,7 @@ fn sentiment_new_clamped_is_permissive() {
     assert_eq!(Sentiment::new_clamped(f64::INFINITY), Sentiment::MAX);
     assert_eq!(Sentiment::new_clamped(f64::NEG_INFINITY), Sentiment::MIN);
 
-    // NaN 降级
+    // NaN 安全处理为 neutral（数据安全边界，非降级）
     assert_eq!(Sentiment::new_clamped(f64::NAN), Sentiment::NEUTRAL);
 }
 
@@ -43,7 +43,7 @@ fn sentiment_display_format() {
     assert_eq!(Sentiment::MIN.to_string(), "-1.0");
     assert_eq!(
         Sentiment::new(0.75).unwrap().to_string(),
-        "+0.8" // 0.75 rounds to 0.8 with one decimal
+        "+0.75" // 使用最短表示，不再四舍五入丢失精度
     );
 }
 
@@ -69,11 +69,9 @@ fn sentiment_into_f64_roundtrip() {
 }
 
 #[test]
-fn sentiment_neutral_is_default_degradation_target() {
-    // 验证退化路径的正确目标值
+fn sentiment_neutral_is_zero_signal() {
+    // NEUTRAL = 0.0 是"无方向信号"的语义值，不是降级目标。
+    // AI 不可用时的降级（90/10/0）由 decision engine 层处理。
     assert_eq!(Sentiment::neutral().value(), 0.0);
-
-    // 模拟退化场景：解析失败 → neutral
-    let safe = Sentiment::neutral();
-    assert_eq!(safe, Sentiment::NEUTRAL);
+    assert_eq!(Sentiment::neutral(), Sentiment::NEUTRAL);
 }

@@ -72,13 +72,12 @@ async fn mock_provider_returns_neutral() {
 }
 
 #[tokio::test]
-async fn mock_provider_returns_error_then_degradation() {
+async fn mock_provider_propagates_error_to_caller() {
     let provider = MockAiProvider::with_error(AiClientError::Timeout { seconds: 30 });
+    // ai-client 不自行降级——错误原样返回给上层（decision engine），
+    // 由 engine 根据 70/20/10 → 90/10/0 策略决定如何处理。
     let result = provider.analyze("新闻").await;
-    assert!(result.is_err());
-    // 模拟退化
-    let safe = result.unwrap_or_else(|_| Sentiment::neutral());
-    assert_eq!(safe, Sentiment::NEUTRAL);
+    assert!(result.is_err(), "AI 错误应当传播到调用方而非静默吞掉");
 }
 
 #[test]

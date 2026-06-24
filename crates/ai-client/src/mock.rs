@@ -174,4 +174,24 @@ mod tests {
         let mock = MockAiProvider::new();
         _assert_provider(&mock);
     }
+
+    #[tokio::test]
+    async fn mock_strong_signal_overrides_weak() {
+        // 回归测试：强信号关键词不能被子串弱信号覆盖。
+        // "大涨" 包含 "上涨"，"强势反弹" 包含 "反弹" ——
+        // 若检测顺序颠倒，强信号会被弱信号 shadow 掉。
+        let mock = MockAiProvider::new();
+
+        // "大涨" 是强信号（0.6），不能因为包含 "上涨" 而返回弱信号（0.3）
+        let s = mock.analyze("A股今日大涨").await.unwrap();
+        assert!(s.value() > 0.5, "大涨应是强信号(0.6), got {}", s.value());
+
+        // "强势反弹" 是强信号，不能因为包含 "反弹" 而返回弱信号
+        let s = mock.analyze("市场强势反弹").await.unwrap();
+        assert!(s.value() > 0.5, "强势反弹应是强信号(0.6), got {}", s.value());
+
+        // 纯弱信号不受影响
+        let s = mock.analyze("市场温和反弹").await.unwrap();
+        assert!((0.2..0.5).contains(&s.value()), "反弹应是弱信号(0.3), got {}", s.value());
+    }
 }
