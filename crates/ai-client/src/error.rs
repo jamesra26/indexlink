@@ -5,8 +5,8 @@
 
 /// AI 客户端可能产生的错误。
 ///
-/// 调用方应将所有错误统一映射为 [`Sentiment::neutral()`]，
-/// 确保 AI 不可用时主决策流程不受影响。
+/// 调用方应将错误原样传播到 decision engine，
+/// 由 engine 按 70/20/10 → 90/10/0 策略处理 AI 不可用的情况。
 #[derive(Debug, thiserror::Error)]
 pub enum AiClientError {
     /// 请求超时。
@@ -16,11 +16,14 @@ pub enum AiClientError {
         seconds: u64,
     },
 
-    /// HTTP 传输层错误（DNS、TLS、连接被拒等）。
+    /// HTTP 传输层错误（DNS 解析、TLS 握手、连接被拒、或响应流中断）。
+    ///
+    /// 涵盖 `reqwest` 在连接建立与响应体读取两个阶段的所有 IO 错误。
+    /// 调用方无需区分具体阶段——任何传输错误都意味着 AI 服务不可达。
     #[error("AI service request failed")]
     Transport(#[source] reqwest::Error),
 
-    /// API 返回非成功状态码。
+    /// API 返回非成功状态码（4xx/5xx）。
     #[error("AI service returned HTTP {status}")]
     HttpStatus {
         /// HTTP 状态码。
