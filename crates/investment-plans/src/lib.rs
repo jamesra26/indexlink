@@ -211,6 +211,20 @@ pub trait InvestmentPlanRepository: Send + Sync {
 
     /// 按 ID 查询投资计划。
     async fn get(&self, id: Uuid) -> Result<InvestmentPlan, PlanRepositoryError>;
+
+    /// 更新投资计划。
+    async fn update(
+        &self,
+        id: Uuid,
+        input: UpdateInvestmentPlan,
+    ) -> Result<InvestmentPlan, PlanRepositoryError>;
+
+    /// 设置投资计划启停状态。
+    async fn set_active(
+        &self,
+        id: Uuid,
+        is_active: bool,
+    ) -> Result<InvestmentPlan, PlanRepositoryError>;
 }
 
 /// Repository port 的安全错误。
@@ -256,6 +270,38 @@ impl InvestmentPlanService {
     /// 获取单个投资计划。
     pub async fn get(&self, id: Uuid) -> Result<InvestmentPlan, PlanApplicationError> {
         self.repository.get(id).await.map_err(Into::into)
+    }
+
+    /// 更新投资计划。
+    ///
+    /// 当仅更新 `base_contribution` 或 `max_single_execution` 其中之一时，会读取当前计划
+    /// 并校验最终金额组合仍满足安全边界。
+    pub async fn update(
+        &self,
+        id: Uuid,
+        input: UpdateInvestmentPlan,
+    ) -> Result<InvestmentPlan, PlanApplicationError> {
+        let input = input.normalize()?;
+        let current = self.repository.get(id).await?;
+        let base = input.base_contribution.unwrap_or(current.base_contribution);
+        let max = input
+            .max_single_execution
+            .unwrap_or(current.max_single_execution);
+        validate_amounts(base, max)?;
+
+        self.repository.update(id, input).await.map_err(Into::into)
+    }
+
+    /// 设置投资计划启停状态。
+    pub async fn set_active(
+        &self,
+        id: Uuid,
+        is_active: bool,
+    ) -> Result<InvestmentPlan, PlanApplicationError> {
+        self.repository
+            .set_active(id, is_active)
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -386,6 +432,16 @@ mod tests {
         fail: bool,
     }
 
+    fn find_plan_mut(
+        plans: &mut [InvestmentPlan],
+        id: Uuid,
+    ) -> Result<&mut InvestmentPlan, PlanRepositoryError> {
+        plans
+            .iter_mut()
+            .find(|plan| plan.id == id)
+            .ok_or(PlanRepositoryError::NotFound)
+    }
+
     #[async_trait]
     impl InvestmentPlanRepository for FakeRepository {
         async fn create(
@@ -419,6 +475,50 @@ mod tests {
                 .find(|plan| plan.id == id)
                 .cloned()
                 .ok_or(PlanRepositoryError::NotFound)
+        }
+
+        async fn update(
+            &self,
+            id: Uuid,
+            input: UpdateInvestmentPlan,
+        ) -> Result<InvestmentPlan, PlanRepositoryError> {
+            if self.fail {
+                return Err(PlanRepositoryError::Unavailable);
+            }
+            let mut plans = self.plans.lock().unwrap();
+            let plan = find_plan_mut(&mut plans, id)?;
+            if let Some(name) = input.name {
+                plan.name = name;
+            }
+            if let Some(base) = input.base_contribution {
+                plan.base_contribution = base;
+            }
+            if let Some(day) = input.schedule_day {
+                plan.schedule_day = day;
+            }
+            if let Some(max) = input.max_single_execution {
+                plan.max_single_execution = max;
+            }
+            if let Some(is_active) = input.is_active {
+                plan.is_active = is_active;
+            }
+            plan.updated_at = OffsetDateTime::from_unix_timestamp(1_700_000_001).unwrap();
+            Ok(plan.clone())
+        }
+
+        async fn set_active(
+            &self,
+            id: Uuid,
+            is_active: bool,
+        ) -> Result<InvestmentPlan, PlanRepositoryError> {
+            if self.fail {
+                return Err(PlanRepositoryError::Unavailable);
+            }
+            let mut plans = self.plans.lock().unwrap();
+            let plan = find_plan_mut(&mut plans, id)?;
+            plan.is_active = is_active;
+            plan.updated_at = OffsetDateTime::from_unix_timestamp(1_700_000_001).unwrap();
+            Ok(plan.clone())
         }
     }
 
@@ -587,5 +687,61 @@ mod tests {
             unavailable.get(Uuid::from_u128(1)).await,
             Err(PlanApplicationError::Unavailable)
         );
+    }
+
+    #[tokio::test]
+    async fn service_updates_plan_fields() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let created = service.create(create_input()).await.unwrap();
+
+        let updated = service
+            .update(
+                created.id,
+                UpdateInvestmentPlan {
+                    name: Some("  Core ETF  ".to_owned()),
+                    schedule_day: Some(20),
+                    max_single_execution: Some(money("2000.00")),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(updated.name, "Core ETF");
+        assert_eq!(updated.schedule_day, 20);
+        assert_eq!(updated.max_single_execution, money("2000.00"));
+        assert!(updated.updated_at > created.updated_at);
+    }
+
+    #[tokio::test]
+    async fn service_rejects_update_that_breaks_final_amount_limit() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let created = service.create(create_input()).await.unwrap();
+
+        assert_eq!(
+            service
+                .update(
+                    created.id,
+                    UpdateInvestmentPlan {
+                        base_contribution: Some(money("2000.00")),
+                        ..Default::default()
+                    },
+                )
+                .await,
+            Err(PlanApplicationError::Validation(
+                PlanValidationError::MaxBelowBaseContribution
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn service_sets_active_state() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let created = service.create(create_input()).await.unwrap();
+
+        let disabled = service.set_active(created.id, false).await.unwrap();
+
+        assert!(!disabled.is_active);
+        assert!(disabled.updated_at > created.updated_at);
     }
 }
