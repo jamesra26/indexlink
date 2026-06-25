@@ -18,6 +18,7 @@
   - 支持 create、list、get、update 与 set active；update 使用事务与 `FOR UPDATE` 在写入路径内合并并校验最终金额组合。
   - SQL 边界使用 PostgreSQL cast 与文本/epoch 映射，避免扩大 sqlx feature 面。
   - 新增 storage adapter 单元测试覆盖 SQLx 错误安全映射与最终金额组合校验。
+  - Review fix：为公开 re-export 的 `PostgresInvestmentPlanRepository` 补齐文档注释，满足 public API 文档要求。
 - 验证：
   - `cargo test -p indexlink-storage --locked` 通过：8 个 storage 与 adapter 单元测试通过。
   - `cargo fmt --all -- --check` 通过。

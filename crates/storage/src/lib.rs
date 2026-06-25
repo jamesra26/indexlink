@@ -11,6 +11,7 @@ use std::{str::FromStr, time::Duration};
 
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
+/// Investment Plan repository 的 PostgreSQL adapter。
 pub use investment_plans::PostgresInvestmentPlanRepository;
 
 const DEFAULT_MAX_CONNECTIONS: u32 = 10;
