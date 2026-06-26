@@ -1,7 +1,8 @@
 //! Investment Plan HTTP routes.
 
 use axum::{
-    extract::{Path, State},
+    extract::{rejection::JsonRejection, Path, State},
+    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
@@ -42,6 +43,7 @@ enum ScheduleKindRequest {
 }
 
 impl From<ScheduleKindRequest> for ScheduleKind {
+    /// Convert the API schedule value into the domain schedule kind.
     fn from(value: ScheduleKindRequest) -> Self {
         match value {
             ScheduleKindRequest::Monthly => Self::Monthly,
@@ -50,6 +52,7 @@ impl From<ScheduleKindRequest> for ScheduleKind {
 }
 
 impl From<CreateInvestmentPlanRequest> for CreateInvestmentPlan {
+    /// Convert a validated API DTO into the domain create input.
     fn from(value: CreateInvestmentPlanRequest) -> Self {
         Self {
             name: value.name,
@@ -73,9 +76,13 @@ pub(crate) fn router() -> Router<ApiState> {
 /// 创建 investment plan。
 async fn create_plan(
     State(state): State<ApiState>,
-    Json(input): Json<CreateInvestmentPlanRequest>,
-) -> Result<Json<InvestmentPlan>, ApiError> {
-    Ok(Json(state.plans().create(input.into()).await?))
+    input: Result<Json<CreateInvestmentPlanRequest>, JsonRejection>,
+) -> Result<(StatusCode, Json<InvestmentPlan>), ApiError> {
+    let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(state.plans().create(input.into()).await?),
+    ))
 }
 
 /// 列出 investment plans。

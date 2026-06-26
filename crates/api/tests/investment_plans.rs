@@ -155,11 +155,33 @@ async fn create_plan_returns_normalized_plan_json() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::CREATED);
     let body = response_json(response).await;
     assert_eq!(body["name"], json!("Core ETF"));
     assert_eq!(body["symbol"], json!("VOO"));
     assert!(body["base_contribution"].is_string());
+}
+
+/// Verify JSON extractor failures return the shared error envelope.
+#[tokio::test]
+async fn invalid_create_json_returns_safe_bad_request() {
+    let response = app(Arc::new(FakeRepository::default()))
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/investment-plans")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"base_contribution": 1000.0}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response_json(response).await,
+        json!({"error": {"code": "bad_request", "message": "request failed validation"}})
+    );
 }
 
 /// Verify list/get routes read plans and map missing IDs safely.

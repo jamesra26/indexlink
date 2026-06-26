@@ -75,6 +75,7 @@ impl IntoResponse for ApiError {
 }
 
 impl From<PlanApplicationError> for ApiError {
+    /// Convert application-layer errors into safe API errors.
     fn from(error: PlanApplicationError) -> Self {
         match error {
             PlanApplicationError::Validation(_) => Self::BadRequest,
@@ -85,6 +86,7 @@ impl From<PlanApplicationError> for ApiError {
 }
 
 impl From<PlanValidationError> for ApiError {
+    /// Convert validation errors into the public bad-request envelope.
     fn from(_: PlanValidationError) -> Self {
         Self::BadRequest
     }
