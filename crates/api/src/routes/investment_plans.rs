@@ -1,7 +1,10 @@
 //! Investment Plan HTTP routes.
 
 use axum::{
-    extract::{rejection::JsonRejection, Path, State},
+    extract::{
+        rejection::{JsonRejection, PathRejection},
+        Path, State,
+    },
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -93,7 +96,8 @@ async fn list_plans(State(state): State<ApiState>) -> Result<Json<Vec<Investment
 /// 按 ID 获取 investment plan。
 async fn get_plan(
     State(state): State<ApiState>,
-    Path(id): Path<Uuid>,
+    id: Result<Path<Uuid>, PathRejection>,
 ) -> Result<Json<InvestmentPlan>, ApiError> {
+    let Path(id) = id.map_err(|_| ApiError::BadRequest)?;
     Ok(Json(state.plans().get(id).await?))
 }

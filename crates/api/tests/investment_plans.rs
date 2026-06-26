@@ -184,9 +184,9 @@ async fn invalid_create_json_returns_safe_bad_request() {
     );
 }
 
-/// Verify list/get routes read plans and map missing IDs safely.
+/// Verify list/get routes read plans and map bad IDs safely.
 #[tokio::test]
-async fn list_get_and_missing_plan_routes_use_service() {
+async fn list_get_and_bad_id_routes_use_service() {
     let repository = Arc::new(FakeRepository::default());
     let created = repository.create(create_input()).await.unwrap();
     let app = app(repository);
@@ -216,6 +216,7 @@ async fn list_get_and_missing_plan_routes_use_service() {
     assert_eq!(response_json(get).await["name"], json!("Core ETF"));
 
     let missing = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri(format!("/investment-plans/{}", Uuid::from_u128(99)))
@@ -228,5 +229,20 @@ async fn list_get_and_missing_plan_routes_use_service() {
     assert_eq!(
         response_json(missing).await,
         json!({"error": {"code": "not_found", "message": "resource not found"}})
+    );
+
+    let bad_id = app
+        .oneshot(
+            Request::builder()
+                .uri("/investment-plans/not-a-uuid")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bad_id.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response_json(bad_id).await,
+        json!({"error": {"code": "bad_request", "message": "request failed validation"}})
     );
 }

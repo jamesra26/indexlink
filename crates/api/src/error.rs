@@ -5,7 +5,7 @@ use serde::Serialize;
 /// API 错误。
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
-    /// 请求内容未通过领域校验。
+    /// 请求参数或载荷未通过校验。
     #[error("bad request")]
     BadRequest,
     /// 请求的资源不存在。
