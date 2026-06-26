@@ -8,7 +8,7 @@
 //! # 当前实现范围（MVP 第一阶段）
 //!
 //! - **第一层（70% 基本面）**：Shiller CAPE 分位 + ERP 分位 → 综合基本面得分
-//! - 第二层（20% 趋势）：预留接口，本期为存根（stub）
+//! - **第二层（20% 趋势）**：MA200 距离 / RSI / VIX 加权分位 → 综合趋势得分 + 节奏体制（函数存根，待实现）
 
 pub mod fundamental;
 pub mod percentile;
@@ -19,7 +19,11 @@ pub use fundamental::{
     evaluate_fundamental, FundamentalConfig, FundamentalSignal, FundamentalSnapshot,
 };
 pub use percentile::{percentile_of, weighted_percentile_of, EwPercentileConfig};
-pub use trend::{evaluate_trend_stub, TrendSignal};
+#[allow(deprecated)]
+pub use trend::{
+    evaluate_trend, evaluate_trend_stub, TrendConfig, TrendRegime, TrendSignal, TrendSnapshot,
+    TrendWeights,
+};
 pub use weight::Weight;
 
 // ─── 错误类型 ────────────────────────────────────────────────────────────────
