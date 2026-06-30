@@ -172,14 +172,20 @@ impl UpdateInvestmentPlan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct PreviewInvestmentPlanExecution {
     /// 当前月内日期，范围为 1..=31。
-    pub day_of_month: i16,
+    day_of_month: i16,
 }
 
 impl PreviewInvestmentPlanExecution {
-    /// 校验执行预览输入。
-    pub fn normalize(self) -> Result<Self, PlanValidationError> {
-        validate_calendar_day(self.day_of_month)?;
-        Ok(self)
+    /// 创建已校验的执行预览输入。
+    pub fn new(day_of_month: i16) -> Result<Self, PlanValidationError> {
+        validate_calendar_day(day_of_month)?;
+        Ok(Self { day_of_month })
+    }
+
+    /// 返回已校验的月内日期。
+    #[must_use]
+    pub fn day_of_month(&self) -> i16 {
+        self.day_of_month
     }
 }
 
@@ -189,7 +195,7 @@ impl PreviewInvestmentPlanExecution {
 pub enum ExecutionPreviewStatus {
     /// 计划启用且当前日期命中计划执行日。
     Due,
-    /// 计划启用，但当前日期尚未命中计划执行日。
+    /// 计划启用，但当前日期不是计划执行日。
     Waiting,
     /// 计划已停用，本次不会执行。
     Inactive,
@@ -214,7 +220,7 @@ pub struct InvestmentPlanExecutionPreview {
     pub day_of_month: i16,
     /// 执行预览状态。
     pub status: ExecutionPreviewStatus,
-    /// 命中执行条件时的计划投入金额。
+    /// 命中执行条件时的计划投入金额，已受单次执行上限限制。
     #[serde(
         default,
         with = "rust_decimal::serde::str_option",
@@ -364,15 +370,15 @@ impl InvestmentPlanService {
 
     /// 预览计划在指定月内日期的执行状态。
     ///
-    /// 该用例只做启停与调度日判断，并返回基准投入金额；真实订单、成交和双桶分配由后续阶段处理。
+    /// 该用例只做启停与调度日判断，并在 due 时返回不超过单次执行上限的计划投入金额；
+    /// 真实订单、成交和双桶分配由后续阶段处理。
     pub async fn preview_execution(
         &self,
         id: Uuid,
         input: PreviewInvestmentPlanExecution,
     ) -> Result<InvestmentPlanExecutionPreview, PlanApplicationError> {
-        let input = input.normalize()?;
         let plan = self.repository.get(id).await?;
-        Ok(preview_execution(&plan, input.day_of_month))
+        Ok(preview_execution(&plan, input.day_of_month()))
     }
 }
 
@@ -889,17 +895,14 @@ mod tests {
         assert!(disabled.updated_at > created.updated_at);
     }
 
-    /// 验证执行预览会在执行日返回 due 和基准投入金额。
+    /// 验证执行预览会在执行日返回 due 和不超过单次执行上限的计划金额。
     #[tokio::test]
     async fn service_previews_due_execution_without_bucket_logic() {
         let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
         let created = service.create(create_input()).await.unwrap();
 
         let preview = service
-            .preview_execution(
-                created.id,
-                PreviewInvestmentPlanExecution { day_of_month: 15 },
-            )
+            .preview_execution(created.id, PreviewInvestmentPlanExecution::new(15).unwrap())
             .await
             .unwrap();
 
@@ -915,10 +918,7 @@ mod tests {
         let created = service.create(create_input()).await.unwrap();
 
         let waiting = service
-            .preview_execution(
-                created.id,
-                PreviewInvestmentPlanExecution { day_of_month: 16 },
-            )
+            .preview_execution(created.id, PreviewInvestmentPlanExecution::new(16).unwrap())
             .await
             .unwrap();
         assert_eq!(waiting.status, ExecutionPreviewStatus::Waiting);
@@ -926,10 +926,7 @@ mod tests {
 
         service.set_active(created.id, false).await.unwrap();
         let inactive = service
-            .preview_execution(
-                created.id,
-                PreviewInvestmentPlanExecution { day_of_month: 15 },
-            )
+            .preview_execution(created.id, PreviewInvestmentPlanExecution::new(15).unwrap())
             .await
             .unwrap();
         assert_eq!(inactive.status, ExecutionPreviewStatus::Inactive);
@@ -949,21 +946,12 @@ mod tests {
         assert_eq!(preview.planned_contribution, Some(money("1500.00")));
     }
 
-    /// 验证执行预览拒绝非法月内日期。
-    #[tokio::test]
-    async fn service_rejects_invalid_execution_preview_day() {
-        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
-
+    /// 验证执行预览输入构造器拒绝非法月内日期。
+    #[test]
+    fn preview_execution_input_rejects_invalid_day() {
         assert_eq!(
-            service
-                .preview_execution(
-                    Uuid::from_u128(1),
-                    PreviewInvestmentPlanExecution { day_of_month: 32 },
-                )
-                .await,
-            Err(PlanApplicationError::Validation(
-                PlanValidationError::InvalidExecutionPreviewDay
-            ))
+            PreviewInvestmentPlanExecution::new(32),
+            Err(PlanValidationError::InvalidExecutionPreviewDay)
         );
     }
 }

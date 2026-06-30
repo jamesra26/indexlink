@@ -11,7 +11,7 @@
   - `CHANGE_LOG.md`
 - 变更内容：
   - 新增 `PreviewInvestmentPlanExecution`、`ExecutionPreviewStatus` 与 `InvestmentPlanExecutionPreview`，用于表达计划在指定月内日期的轻量执行预览。
-  - `InvestmentPlanService::preview_execution` 复用 repository get，区分 `due`、`waiting`、`inactive`，并仅在 due 时返回基准投入金额。
+  - `InvestmentPlanService::preview_execution` 复用 repository get，区分 `due`、`waiting`、`inactive`，并仅在 due 时返回不超过单次执行上限的计划投入金额。
   - 明确该预览不生成 broker order、不处理成交状态，也不包含双桶资金分配。
   - 新增测试覆盖 due、waiting、inactive 与非法预览日期。
 - 验证：
