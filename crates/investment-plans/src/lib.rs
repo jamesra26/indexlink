@@ -4,8 +4,8 @@
 //! Investment Plan 领域与应用层基础。
 //!
 //! 本 crate 采用模块化单体内的轻量六边形边界：这里定义投资计划的领域模型、
-//! 输入校验、应用服务和 repository port；PostgreSQL、Axum、Broker、Qwen、
-//! Scheduler 与执行计划生成均属于外部 adapter 或后续阶段。
+//! 输入校验、执行预览、应用服务和 repository port；PostgreSQL、Axum、Broker、Qwen、
+//! Scheduler 与真实订单生成均属于外部 adapter 或后续阶段。
 //!
 //! MVP 假设：单用户系统、仅支持 monthly、无计划级 timezone、不验证 symbol 是否
 //! 真实可交易、不计算任何本期买入金额或双桶资金分配。
@@ -166,6 +166,63 @@ impl UpdateInvestmentPlan {
     }
 }
 
+/// 投资计划执行预览输入。
+///
+/// 这里只表达调度日判断所需的月内日期；timezone 和真实日历由 scheduler adapter 负责。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PreviewInvestmentPlanExecution {
+    /// 当前月内日期，范围为 1..=31。
+    pub day_of_month: i16,
+}
+
+impl PreviewInvestmentPlanExecution {
+    /// 校验执行预览输入。
+    pub fn normalize(self) -> Result<Self, PlanValidationError> {
+        validate_calendar_day(self.day_of_month)?;
+        Ok(self)
+    }
+}
+
+/// 投资计划执行预览状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionPreviewStatus {
+    /// 计划启用且当前日期命中计划执行日。
+    Due,
+    /// 计划启用，但当前日期尚未命中计划执行日。
+    Waiting,
+    /// 计划已停用，本次不会执行。
+    Inactive,
+}
+
+/// 投资计划执行预览结果。
+///
+/// 这是执行编排前的轻量领域结果，不包含 broker order、成交状态或双桶资金分配。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct InvestmentPlanExecutionPreview {
+    /// 计划 ID。
+    pub plan_id: Uuid,
+    /// 投资标的代码。
+    pub symbol: String,
+    /// ISO 风格三位币种代码。
+    pub currency: String,
+    /// MVP 仅支持 monthly。
+    pub schedule_kind: ScheduleKind,
+    /// 计划每月执行日。
+    pub schedule_day: i16,
+    /// 本次预览使用的月内日期。
+    pub day_of_month: i16,
+    /// 执行预览状态。
+    pub status: ExecutionPreviewStatus,
+    /// 命中执行条件时的计划投入金额。
+    #[serde(
+        default,
+        with = "rust_decimal::serde::str_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub planned_contribution: Option<Decimal>,
+}
+
 /// 投资计划字段校验错误。
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanValidationError {
@@ -181,6 +238,9 @@ pub enum PlanValidationError {
     /// 每月执行日不在 1..=28。
     #[error("monthly schedule day must be between 1 and 28")]
     InvalidScheduleDay,
+    /// 执行预览日期不在 1..=31。
+    #[error("execution preview day must be between 1 and 31")]
+    InvalidExecutionPreviewDay,
     /// 金额不是正数。
     #[error("{field} must be greater than zero")]
     NonPositiveAmount {
@@ -301,6 +361,19 @@ impl InvestmentPlanService {
             .await
             .map_err(Into::into)
     }
+
+    /// 预览计划在指定月内日期的执行状态。
+    ///
+    /// 该用例只做启停与调度日判断，并返回基准投入金额；真实订单、成交和双桶分配由后续阶段处理。
+    pub async fn preview_execution(
+        &self,
+        id: Uuid,
+        input: PreviewInvestmentPlanExecution,
+    ) -> Result<InvestmentPlanExecutionPreview, PlanApplicationError> {
+        let input = input.normalize()?;
+        let plan = self.repository.get(id).await?;
+        Ok(preview_execution(&plan, input.day_of_month))
+    }
 }
 
 /// 应用服务错误。
@@ -366,11 +439,46 @@ fn validate_day(day: i16) -> Result<(), PlanValidationError> {
     }
 }
 
+fn validate_calendar_day(day: i16) -> Result<(), PlanValidationError> {
+    if (1..=31).contains(&day) {
+        Ok(())
+    } else {
+        Err(PlanValidationError::InvalidExecutionPreviewDay)
+    }
+}
+
 fn validate_positive(field: &'static str, value: Decimal) -> Result<(), PlanValidationError> {
     if value > Decimal::ZERO {
         Ok(())
     } else {
         Err(PlanValidationError::NonPositiveAmount { field })
+    }
+}
+
+fn preview_execution(plan: &InvestmentPlan, day_of_month: i16) -> InvestmentPlanExecutionPreview {
+    let status = if !plan.is_active {
+        ExecutionPreviewStatus::Inactive
+    } else if day_of_month == plan.schedule_day {
+        ExecutionPreviewStatus::Due
+    } else {
+        ExecutionPreviewStatus::Waiting
+    };
+    let contribution = if plan.base_contribution <= plan.max_single_execution {
+        plan.base_contribution
+    } else {
+        plan.max_single_execution
+    };
+    let planned_contribution = (status == ExecutionPreviewStatus::Due).then_some(contribution);
+
+    InvestmentPlanExecutionPreview {
+        plan_id: plan.id,
+        symbol: plan.symbol.clone(),
+        currency: plan.currency.clone(),
+        schedule_kind: plan.schedule_kind,
+        schedule_day: plan.schedule_day,
+        day_of_month,
+        status,
+        planned_contribution,
     }
 }
 
@@ -779,5 +887,83 @@ mod tests {
 
         assert!(!disabled.is_active);
         assert!(disabled.updated_at > created.updated_at);
+    }
+
+    /// 验证执行预览会在执行日返回 due 和基准投入金额。
+    #[tokio::test]
+    async fn service_previews_due_execution_without_bucket_logic() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let created = service.create(create_input()).await.unwrap();
+
+        let preview = service
+            .preview_execution(
+                created.id,
+                PreviewInvestmentPlanExecution { day_of_month: 15 },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(preview.plan_id, created.id);
+        assert_eq!(preview.status, ExecutionPreviewStatus::Due);
+        assert_eq!(preview.planned_contribution, Some(money("1000.00")));
+    }
+
+    /// 验证执行预览会区分等待执行和计划停用。
+    #[tokio::test]
+    async fn service_previews_waiting_and_inactive_execution() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let created = service.create(create_input()).await.unwrap();
+
+        let waiting = service
+            .preview_execution(
+                created.id,
+                PreviewInvestmentPlanExecution { day_of_month: 16 },
+            )
+            .await
+            .unwrap();
+        assert_eq!(waiting.status, ExecutionPreviewStatus::Waiting);
+        assert_eq!(waiting.planned_contribution, None);
+
+        service.set_active(created.id, false).await.unwrap();
+        let inactive = service
+            .preview_execution(
+                created.id,
+                PreviewInvestmentPlanExecution { day_of_month: 15 },
+            )
+            .await
+            .unwrap();
+        assert_eq!(inactive.status, ExecutionPreviewStatus::Inactive);
+        assert_eq!(inactive.planned_contribution, None);
+    }
+
+    /// 验证执行预览不会超过单次执行金额硬上限。
+    #[test]
+    fn execution_preview_never_exceeds_single_execution_cap() {
+        let mut plan = plan_from(Uuid::from_u128(1), create_input().normalize().unwrap());
+        plan.base_contribution = money("2000.00");
+        plan.max_single_execution = money("1500.00");
+
+        let preview = preview_execution(&plan, 15);
+
+        assert_eq!(preview.status, ExecutionPreviewStatus::Due);
+        assert_eq!(preview.planned_contribution, Some(money("1500.00")));
+    }
+
+    /// 验证执行预览拒绝非法月内日期。
+    #[tokio::test]
+    async fn service_rejects_invalid_execution_preview_day() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+
+        assert_eq!(
+            service
+                .preview_execution(
+                    Uuid::from_u128(1),
+                    PreviewInvestmentPlanExecution { day_of_month: 32 },
+                )
+                .await,
+            Err(PlanApplicationError::Validation(
+                PlanValidationError::InvalidExecutionPreviewDay
+            ))
+        );
     }
 }

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### 2026-07-01 00:19 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：投资计划执行预览领域骨架。
+- 涉及文件：
+  - `crates/investment-plans/src/lib.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `PreviewInvestmentPlanExecution`、`ExecutionPreviewStatus` 与 `InvestmentPlanExecutionPreview`，用于表达计划在指定月内日期的轻量执行预览。
+  - `InvestmentPlanService::preview_execution` 复用 repository get，区分 `due`、`waiting`、`inactive`，并仅在 due 时返回基准投入金额。
+  - 明确该预览不生成 broker order、不处理成交状态，也不包含双桶资金分配。
+  - 新增测试覆盖 due、waiting、inactive 与非法预览日期。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-06-28 18:36 UTC+10
 
 - 执行模型：GPT-5。
