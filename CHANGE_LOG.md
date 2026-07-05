@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### 2026-07-05 22:29 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：投资计划双桶投入拆分领域模型。
+- 涉及文件：
+  - `crates/investment-plans/src/lib.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `TwoBucketContributionSplit`，按已校验的双桶比例拆分本次计划投入金额。
+  - 拆分结果通过构造器生成，保证 core + opportunity 等于原始计划投入金额。
+  - 新增 `contribution_for`，按 `InvestmentBucket` 读取对应投入金额。
+  - 新增测试覆盖总额守恒、按桶读取、非正金额拒绝和金额 JSON 字符串序列化。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-02 00:24 UTC+10
 
 - 执行模型：GPT-5。

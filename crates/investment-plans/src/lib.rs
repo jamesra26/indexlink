@@ -101,6 +101,67 @@ impl TwoBucketAllocationConfig {
     }
 }
 
+/// 投资计划双桶投入拆分结果。
+///
+/// 该结果只表达本次计划投入金额在两个桶之间的拆分，不读取余额、不生成订单。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TwoBucketContributionSplit {
+    /// 本次计划投入总金额。
+    #[serde(with = "rust_decimal::serde::str")]
+    planned_contribution: Decimal,
+    /// 常规定投桶投入金额。
+    #[serde(with = "rust_decimal::serde::str")]
+    core_contribution: Decimal,
+    /// 机会桶投入金额。
+    #[serde(with = "rust_decimal::serde::str")]
+    opportunity_contribution: Decimal,
+}
+
+impl TwoBucketContributionSplit {
+    /// 按双桶配置拆分本次计划投入金额。
+    pub fn new(
+        planned_contribution: Decimal,
+        config: TwoBucketAllocationConfig,
+    ) -> Result<Self, PlanValidationError> {
+        validate_positive("planned_contribution", planned_contribution)?;
+        let core_contribution = planned_contribution * config.core_ratio().value();
+        let opportunity_contribution = planned_contribution - core_contribution;
+
+        Ok(Self {
+            planned_contribution,
+            core_contribution,
+            opportunity_contribution,
+        })
+    }
+
+    /// 返回本次计划投入总金额。
+    #[must_use]
+    pub fn planned_contribution(self) -> Decimal {
+        self.planned_contribution
+    }
+
+    /// 返回常规定投桶投入金额。
+    #[must_use]
+    pub fn core_contribution(self) -> Decimal {
+        self.core_contribution
+    }
+
+    /// 返回机会桶投入金额。
+    #[must_use]
+    pub fn opportunity_contribution(self) -> Decimal {
+        self.opportunity_contribution
+    }
+
+    /// 返回指定桶的投入金额。
+    #[must_use]
+    pub fn contribution_for(self, bucket: InvestmentBucket) -> Decimal {
+        match bucket {
+            InvestmentBucket::Core => self.core_contribution,
+            InvestmentBucket::Opportunity => self.opportunity_contribution,
+        }
+    }
+}
+
 /// MVP 支持的投资计划周期。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -818,6 +879,83 @@ mod tests {
             serde_json::to_value(BucketAllocationRatio::new(money("0.25")).unwrap()).unwrap();
 
         assert_eq!(encoded, json!("0.25"));
+    }
+
+    /// 验证双桶投入拆分会按比例拆分并保持总额不变。
+    #[test]
+    fn two_bucket_contribution_split_preserves_total_amount() {
+        let config = TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(money("0.80")).unwrap(),
+            BucketAllocationRatio::new(money("0.20")).unwrap(),
+        )
+        .unwrap();
+
+        let split = TwoBucketContributionSplit::new(money("1000.00"), config).unwrap();
+
+        assert_eq!(split.core_contribution(), money("800.0000"));
+        assert_eq!(split.opportunity_contribution(), money("200.0000"));
+        assert_eq!(
+            split.core_contribution() + split.opportunity_contribution(),
+            split.planned_contribution()
+        );
+    }
+
+    /// 验证双桶投入拆分可以按桶读取金额。
+    #[test]
+    fn two_bucket_contribution_split_returns_amount_by_bucket() {
+        let config = TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(money("0.25")).unwrap(),
+            BucketAllocationRatio::new(money("0.75")).unwrap(),
+        )
+        .unwrap();
+
+        let split = TwoBucketContributionSplit::new(money("40.00"), config).unwrap();
+
+        assert_eq!(
+            split.contribution_for(InvestmentBucket::Core),
+            money("10.0000")
+        );
+        assert_eq!(
+            split.contribution_for(InvestmentBucket::Opportunity),
+            money("30.0000")
+        );
+    }
+
+    /// 验证双桶投入拆分拒绝非正计划金额。
+    #[test]
+    fn two_bucket_contribution_split_rejects_non_positive_amount() {
+        let config = TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(money("0.50")).unwrap(),
+            BucketAllocationRatio::new(money("0.50")).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            TwoBucketContributionSplit::new(Decimal::ZERO, config),
+            Err(PlanValidationError::NonPositiveAmount {
+                field: "planned_contribution",
+            })
+        );
+    }
+
+    /// 验证双桶投入拆分以字符串形式序列化金额。
+    #[test]
+    fn two_bucket_contribution_split_serializes_amounts_as_json_strings() {
+        let config = TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(money("0.50")).unwrap(),
+            BucketAllocationRatio::new(money("0.50")).unwrap(),
+        )
+        .unwrap();
+        let split = TwoBucketContributionSplit::new(money("1000.00"), config).unwrap();
+
+        let encoded = serde_json::to_value(split).unwrap();
+
+        assert!(matches!(encoded["planned_contribution"], Value::String(_)));
+        assert!(matches!(encoded["core_contribution"], Value::String(_)));
+        assert!(matches!(
+            encoded["opportunity_contribution"],
+            Value::String(_)
+        ));
     }
 
     /// 验证创建输入会裁剪文本并规范化 symbol/currency。
