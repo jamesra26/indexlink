@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### 2026-07-06 20:55 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：投资计划执行预览接入双桶拆分。
+- 涉及文件：
+  - `crates/investment-plans/src/lib.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - `InvestmentPlanExecutionPreview` 新增可选 `bucket_split`，仅在 due 且调用方提供双桶配置时返回。
+  - 新增 `InvestmentPlanService::preview_execution_with_buckets`，复用现有执行日判断并附带 core/opportunity 拆分。
+  - 保留原 `preview_execution` 行为，默认不返回双桶拆分，避免影响现有调用方。
+  - 新增测试覆盖 due 拆分、非 due 不拆分和 JSON 字符串金额契约。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-05 22:29 UTC+10
 
 - 执行模型：GPT-5。

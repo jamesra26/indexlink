@@ -8,7 +8,7 @@
 //! Scheduler 与真实订单生成均属于外部 adapter 或后续阶段。
 //!
 //! MVP 假设：单用户系统、仅支持 monthly、无计划级 timezone、不验证 symbol 是否
-//! 真实可交易、不生成任何真实订单；双桶资金分配会在后续阶段接入执行预览。
+//! 真实可交易、不生成任何真实订单；双桶资金分配只作为执行预览的一部分输出。
 //!
 //! 金额统一使用 [`rust_decimal::Decimal`]。HTTP/JSON 边界必须以字符串编码金额，
 //! 避免 JavaScript Number 或 JSON 浮点转换造成精度损失。领域类型不直接实现
@@ -340,7 +340,7 @@ pub enum ExecutionPreviewStatus {
 
 /// 投资计划执行预览结果。
 ///
-/// 这是执行编排前的轻量领域结果，不包含 broker order、成交状态或双桶资金分配。
+/// 这是执行编排前的轻量领域结果，不包含 broker order 或成交状态。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct InvestmentPlanExecutionPreview {
     /// 计划 ID。
@@ -364,6 +364,9 @@ pub struct InvestmentPlanExecutionPreview {
         skip_serializing_if = "Option::is_none"
     )]
     pub planned_contribution: Option<Decimal>,
+    /// 命中执行条件且调用方提供双桶配置时的投入拆分。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket_split: Option<TwoBucketContributionSplit>,
 }
 
 /// 投资计划字段校验错误。
@@ -521,7 +524,21 @@ impl InvestmentPlanService {
         input: PreviewInvestmentPlanExecution,
     ) -> Result<InvestmentPlanExecutionPreview, PlanApplicationError> {
         let plan = self.repository.get(id).await?;
-        Ok(preview_execution(&plan, input.day_of_month()))
+        preview_execution(&plan, input.day_of_month(), None).map_err(Into::into)
+    }
+
+    /// 预览计划在指定月内日期的执行状态，并在 due 时附带双桶投入拆分。
+    ///
+    /// 该用例仍不读取余额、不判断市场信号、不生成订单；它只把已确定的计划投入金额
+    /// 按已校验的双桶配置拆成 core/opportunity。
+    pub async fn preview_execution_with_buckets(
+        &self,
+        id: Uuid,
+        input: PreviewInvestmentPlanExecution,
+        bucket_config: TwoBucketAllocationConfig,
+    ) -> Result<InvestmentPlanExecutionPreview, PlanApplicationError> {
+        let plan = self.repository.get(id).await?;
+        preview_execution(&plan, input.day_of_month(), Some(bucket_config)).map_err(Into::into)
     }
 }
 
@@ -604,7 +621,11 @@ fn validate_positive(field: &'static str, value: Decimal) -> Result<(), PlanVali
     }
 }
 
-fn preview_execution(plan: &InvestmentPlan, day_of_month: i16) -> InvestmentPlanExecutionPreview {
+fn preview_execution(
+    plan: &InvestmentPlan,
+    day_of_month: i16,
+    bucket_config: Option<TwoBucketAllocationConfig>,
+) -> Result<InvestmentPlanExecutionPreview, PlanValidationError> {
     let status = if !plan.is_active {
         ExecutionPreviewStatus::Inactive
     } else if day_of_month == plan.schedule_day {
@@ -618,8 +639,14 @@ fn preview_execution(plan: &InvestmentPlan, day_of_month: i16) -> InvestmentPlan
         plan.max_single_execution
     };
     let planned_contribution = (status == ExecutionPreviewStatus::Due).then_some(contribution);
+    let bucket_split = match (planned_contribution, bucket_config) {
+        (Some(contribution), Some(config)) => {
+            Some(TwoBucketContributionSplit::new(contribution, config)?)
+        }
+        _ => None,
+    };
 
-    InvestmentPlanExecutionPreview {
+    Ok(InvestmentPlanExecutionPreview {
         plan_id: plan.id,
         symbol: plan.symbol.clone(),
         currency: plan.currency.clone(),
@@ -628,7 +655,8 @@ fn preview_execution(plan: &InvestmentPlan, day_of_month: i16) -> InvestmentPlan
         day_of_month,
         status,
         planned_contribution,
-    }
+        bucket_split,
+    })
 }
 
 fn validate_amounts(base: Decimal, max: Decimal) -> Result<(), PlanValidationError> {
@@ -1179,6 +1207,7 @@ mod tests {
         assert_eq!(preview.plan_id, created.id);
         assert_eq!(preview.status, ExecutionPreviewStatus::Due);
         assert_eq!(preview.planned_contribution, Some(money("1000.00")));
+        assert_eq!(preview.bucket_split, None);
     }
 
     /// 验证执行预览会区分等待执行和计划停用。
@@ -1193,6 +1222,7 @@ mod tests {
             .unwrap();
         assert_eq!(waiting.status, ExecutionPreviewStatus::Waiting);
         assert_eq!(waiting.planned_contribution, None);
+        assert_eq!(waiting.bucket_split, None);
 
         service.set_active(created.id, false).await.unwrap();
         let inactive = service
@@ -1201,6 +1231,94 @@ mod tests {
             .unwrap();
         assert_eq!(inactive.status, ExecutionPreviewStatus::Inactive);
         assert_eq!(inactive.planned_contribution, None);
+        assert_eq!(inactive.bucket_split, None);
+    }
+
+    /// 验证 due 执行预览可以附带双桶投入拆分。
+    #[tokio::test]
+    async fn service_previews_due_execution_with_bucket_split() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let created = service.create(create_input()).await.unwrap();
+        let config = TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(money("0.80")).unwrap(),
+            BucketAllocationRatio::new(money("0.20")).unwrap(),
+        )
+        .unwrap();
+
+        let preview = service
+            .preview_execution_with_buckets(
+                created.id,
+                PreviewInvestmentPlanExecution::new(15).unwrap(),
+                config,
+            )
+            .await
+            .unwrap();
+
+        let split = preview.bucket_split.unwrap();
+        assert_eq!(preview.status, ExecutionPreviewStatus::Due);
+        assert_eq!(split.planned_contribution(), money("1000.00"));
+        assert_eq!(split.core_contribution(), money("800.0000"));
+        assert_eq!(split.opportunity_contribution(), money("200.0000"));
+    }
+
+    /// 验证非 due 执行预览不会附带双桶投入拆分。
+    #[tokio::test]
+    async fn service_omits_bucket_split_when_execution_is_not_due() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let created = service.create(create_input()).await.unwrap();
+        let config = TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(money("0.50")).unwrap(),
+            BucketAllocationRatio::new(money("0.50")).unwrap(),
+        )
+        .unwrap();
+
+        let waiting = service
+            .preview_execution_with_buckets(
+                created.id,
+                PreviewInvestmentPlanExecution::new(16).unwrap(),
+                config,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(waiting.status, ExecutionPreviewStatus::Waiting);
+        assert_eq!(waiting.planned_contribution, None);
+        assert_eq!(waiting.bucket_split, None);
+    }
+
+    /// 验证执行预览中的双桶拆分保持 JSON 字符串金额契约。
+    #[tokio::test]
+    async fn bucket_split_preview_serializes_amounts_as_json_strings() {
+        let service = InvestmentPlanService::new(Arc::new(FakeRepository::default()));
+        let created = service.create(create_input()).await.unwrap();
+        let config = TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(money("0.50")).unwrap(),
+            BucketAllocationRatio::new(money("0.50")).unwrap(),
+        )
+        .unwrap();
+
+        let preview = service
+            .preview_execution_with_buckets(
+                created.id,
+                PreviewInvestmentPlanExecution::new(15).unwrap(),
+                config,
+            )
+            .await
+            .unwrap();
+        let encoded = serde_json::to_value(preview).unwrap();
+
+        assert!(matches!(
+            encoded["bucket_split"]["planned_contribution"],
+            Value::String(_)
+        ));
+        assert!(matches!(
+            encoded["bucket_split"]["core_contribution"],
+            Value::String(_)
+        ));
+        assert!(matches!(
+            encoded["bucket_split"]["opportunity_contribution"],
+            Value::String(_)
+        ));
     }
 
     /// 验证执行预览不会超过单次执行金额硬上限。
@@ -1210,7 +1328,7 @@ mod tests {
         plan.base_contribution = money("2000.00");
         plan.max_single_execution = money("1500.00");
 
-        let preview = preview_execution(&plan, 15);
+        let preview = preview_execution(&plan, 15, None).unwrap();
 
         assert_eq!(preview.status, ExecutionPreviewStatus::Due);
         assert_eq!(preview.planned_contribution, Some(money("1500.00")));
