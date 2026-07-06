@@ -9,7 +9,10 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use investment_plans::{CreateInvestmentPlan, InvestmentPlan, ScheduleKind, UpdateInvestmentPlan};
+use investment_plans::{
+    BucketAllocationRatio, CreateInvestmentPlan, InvestmentPlan, InvestmentPlanExecutionPreview,
+    PreviewInvestmentPlanExecution, ScheduleKind, TwoBucketAllocationConfig, UpdateInvestmentPlan,
+};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -52,6 +55,26 @@ struct UpdateInvestmentPlanRequest {
     max_single_execution: Option<Decimal>,
     /// 可选启停状态。
     is_active: Option<bool>,
+}
+
+/// 执行预览的入站 DTO。
+#[derive(Debug, Deserialize)]
+struct PreviewInvestmentPlanExecutionRequest {
+    /// 本次预览使用的月内日期。
+    day_of_month: i16,
+    /// 可选双桶分配配置；提供后仅在 due 时返回拆分金额。
+    bucket_allocation: Option<TwoBucketAllocationRequest>,
+}
+
+/// 双桶分配配置的入站 DTO。
+#[derive(Debug, Deserialize)]
+struct TwoBucketAllocationRequest {
+    /// 常规定投桶比例，JSON 中必须是字符串。
+    #[serde(with = "rust_decimal::serde::str")]
+    core_ratio: Decimal,
+    /// 机会桶比例，JSON 中必须是字符串。
+    #[serde(with = "rust_decimal::serde::str")]
+    opportunity_ratio: Decimal,
 }
 
 /// API 边界支持的 schedule kind。
@@ -99,11 +122,47 @@ impl From<UpdateInvestmentPlanRequest> for UpdateInvestmentPlan {
     }
 }
 
+impl PreviewInvestmentPlanExecutionRequest {
+    /// Convert the API preview DTO into validated domain inputs.
+    fn into_domain(
+        self,
+    ) -> Result<
+        (
+            PreviewInvestmentPlanExecution,
+            Option<TwoBucketAllocationConfig>,
+        ),
+        ApiError,
+    > {
+        let input = PreviewInvestmentPlanExecution::new(self.day_of_month)?;
+        let bucket_config = self
+            .bucket_allocation
+            .map(TwoBucketAllocationRequest::into_domain)
+            .transpose()?;
+
+        Ok((input, bucket_config))
+    }
+}
+
+impl TwoBucketAllocationRequest {
+    /// Convert API ratio strings into a validated domain bucket config.
+    fn into_domain(self) -> Result<TwoBucketAllocationConfig, ApiError> {
+        TwoBucketAllocationConfig::new(
+            BucketAllocationRatio::new(self.core_ratio)?,
+            BucketAllocationRatio::new(self.opportunity_ratio)?,
+        )
+        .map_err(Into::into)
+    }
+}
+
 /// 构建 investment plan routes。
 pub(crate) fn router() -> Router<ApiState> {
     Router::new()
         .route("/investment-plans", post(create_plan).get(list_plans))
         .route("/investment-plans/:id", get(get_plan).patch(update_plan))
+        .route(
+            "/investment-plans/:id/execution-preview",
+            post(preview_plan_execution),
+        )
 }
 
 /// 创建 investment plan。
@@ -141,4 +200,27 @@ async fn update_plan(
     let Path(id) = id.map_err(|_| ApiError::BadRequest)?;
     let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
     Ok(Json(state.plans().update(id, input.into()).await?))
+}
+
+/// 预览 investment plan 在指定日期的执行状态。
+async fn preview_plan_execution(
+    State(state): State<ApiState>,
+    id: Result<Path<Uuid>, PathRejection>,
+    input: Result<Json<PreviewInvestmentPlanExecutionRequest>, JsonRejection>,
+) -> Result<Json<InvestmentPlanExecutionPreview>, ApiError> {
+    let Path(id) = id.map_err(|_| ApiError::BadRequest)?;
+    let Json(input) = input.map_err(|_| ApiError::BadRequest)?;
+    let (input, bucket_config) = input.into_domain()?;
+
+    let preview = match bucket_config {
+        Some(bucket_config) => {
+            state
+                .plans()
+                .preview_execution_with_buckets(id, input, bucket_config)
+                .await?
+        }
+        None => state.plans().preview_execution(id, input).await?,
+    };
+
+    Ok(Json(preview))
 }
