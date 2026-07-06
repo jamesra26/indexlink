@@ -102,6 +102,27 @@ fn trend_falling_knife_market_score_is_high() {
 }
 
 trend_deferred_test! {
+fn trend_score_clamps_tiny_weight_sum_drift_at_upper_bound() {
+    // TrendWeights 允许权重和存在 1e-9 内的浮点漂移；当各分量都命中上边界时，
+    // composite 可能略大于 1.0。evaluate_trend 应钳制到 Percentile 上界而非 panic。
+    let snapshot = falling_knife_trend_snapshot();
+    let weights = TrendWeights::new(0.5, 0.5, 0.5 * EXACT_FLOAT_TOLERANCE).unwrap();
+    let config = TrendConfig::new(
+        weights,
+        trend_test_percentile_config(),
+        TREND_OVERHEATED_ABOVE,
+        TREND_FALLING_KNIFE_ABOVE,
+    )
+    .unwrap();
+
+    let signal = evaluate_trend(&snapshot, &config).unwrap();
+
+    assert_eq!(signal.score.value(), MAX_PERCENTILE);
+    assert_eq!(signal.regime, TrendRegime::FallingKnife);
+}
+}
+
+trend_deferred_test! {
 fn trend_neutral_market_score_is_near_half() {
     // 横盘中性场景：三指标在加权 ECDF 下均接近中性分位。
     let snapshot = neutral_trend_snapshot();

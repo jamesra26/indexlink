@@ -17,6 +17,7 @@
 - 变更内容：
   - `evaluate_trend` 从 `NotImplemented` 升级为真实趋势计算：MA200 distance 与 RSI 原始分位反向计入，VIX 原始分位正向计入。
   - 新增趋势体制判定：`FallingKnife` 优先于 `Overheated`，否则为 `Neutral`。
+  - Review fix：对趋势合成分数执行 `[0, 1]` clamp，避免权重和浮点容忍导致边界 composite 略超上限时 panic。
   - 保留 `evaluate_trend_or_stub` 和 `evaluate_trend_stub` 作为兼容入口，但默认测试已覆盖真实 trend 行为。
   - 打开既有 trend 行为测试，不再让核心 20% trend TDD 边界保持 ignored。
   - 更新 deferred 测试说明：剩余场景主要阻塞在 Decision Engine，而不是 trend stub。

@@ -308,7 +308,7 @@ pub fn evaluate_trend(
     let composite = config.weights.ma_weight.value() * ma_distance_percentile.invert().value()
         + config.weights.rsi_weight.value() * rsi_percentile.invert().value()
         + config.weights.vix_weight.value() * vix_percentile.value();
-    let score = Percentile::new(composite).expect("趋势加权平均结果必然在 [0.0, 1.0]");
+    let score = Percentile::new(composite.clamp(0.0, 1.0)).expect("clamp 后结果必然在 [0.0, 1.0]");
     let regime = classify_regime(
         ma_distance_percentile,
         rsi_percentile,
