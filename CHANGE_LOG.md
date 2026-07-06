@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### 2026-07-07 00:09 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：投资计划双桶执行预览 API 与 MVP 清单文档。
+- 涉及文件：
+  - `crates/api/src/routes/investment_plans.rs`
+  - `crates/api/tests/investment_plans.rs`
+  - `docs/minimum_mvp.md`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `POST /investment-plans/:id/execution-preview`，通过 API DTO 接收预览日期与可选双桶比例。
+  - 执行预览 API 复用领域构造器校验 `day_of_month`、双桶比例范围与比例合计，不让 serde 直接构造领域类型。
+  - due 且提供双桶配置时返回 `bucket_split`；waiting/inactive 不返回投入金额和双桶拆分。
+  - 新增 route tests 覆盖 due 拆分、非执行日省略拆分，以及非法 UUID、非法日期、非法比例和非法 JSON 的统一 bad request。
+  - 新增 `docs/minimum_mvp.md`，记录最小 MVP 实现清单、演示流程、阿里云接入后待补任务和非 MVP 边界。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-06 23:00 UTC+10
 
 - 执行模型：Claude。

@@ -378,3 +378,138 @@ async fn update_plan_merges_fields_and_maps_bad_input() {
         .unwrap();
     assert_eq!(bad_json.status(), StatusCode::BAD_REQUEST);
 }
+
+/// Verify execution preview route exposes due bucket splits through HTTP.
+#[tokio::test]
+async fn preview_execution_returns_bucket_split_when_due() {
+    let repository = Arc::new(FakeRepository::default());
+    let created = repository.create(create_input()).await.unwrap();
+    let app = app(repository);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/investment-plans/{}/execution-preview",
+                    created.id
+                ))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "day_of_month": 15,
+                        "bucket_allocation": {
+                            "core_ratio": "0.80",
+                            "opportunity_ratio": "0.20"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["plan_id"], json!(created.id));
+    assert_eq!(body["status"], json!("due"));
+    assert_eq!(body["planned_contribution"], json!("1000"));
+    assert_eq!(body["bucket_split"]["planned_contribution"], json!("1000"));
+    assert_eq!(body["bucket_split"]["core_contribution"], json!("800.00"));
+    assert_eq!(
+        body["bucket_split"]["opportunity_contribution"],
+        json!("200.00")
+    );
+}
+
+/// Verify execution preview omits bucket split outside execution day.
+#[tokio::test]
+async fn preview_execution_omits_bucket_split_when_waiting() {
+    let repository = Arc::new(FakeRepository::default());
+    let created = repository.create(create_input()).await.unwrap();
+    let app = app(repository);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/investment-plans/{}/execution-preview",
+                    created.id
+                ))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "day_of_month": 16,
+                        "bucket_allocation": {
+                            "core_ratio": "0.80",
+                            "opportunity_ratio": "0.20"
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["status"], json!("waiting"));
+    assert!(body.get("planned_contribution").is_none());
+    assert!(body.get("bucket_split").is_none());
+}
+
+/// Verify execution preview rejects malformed IDs, JSON, days, and bucket ratios.
+#[tokio::test]
+async fn preview_execution_maps_bad_input_to_safe_bad_request() {
+    let repository = Arc::new(FakeRepository::default());
+    let created = repository.create(create_input()).await.unwrap();
+    let app = app(repository);
+
+    for (uri, body) in [
+        (
+            "/investment-plans/not-a-uuid/execution-preview".to_owned(),
+            json!({"day_of_month": 15}).to_string(),
+        ),
+        (
+            format!("/investment-plans/{}/execution-preview", created.id),
+            json!({"day_of_month": 32}).to_string(),
+        ),
+        (
+            format!("/investment-plans/{}/execution-preview", created.id),
+            json!({
+                "day_of_month": 15,
+                "bucket_allocation": {
+                    "core_ratio": "0.80",
+                    "opportunity_ratio": "0.30"
+                }
+            })
+            .to_string(),
+        ),
+        (
+            format!("/investment-plans/{}/execution-preview", created.id),
+            json!({"day_of_month": "15"}).to_string(),
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response_json(response).await,
+            json!({"error": {"code": "bad_request", "message": "invalid request"}})
+        );
+    }
+}
