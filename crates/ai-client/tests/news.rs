@@ -47,12 +47,12 @@ async fn real_cnbc_with_mock() {
             item.description
         );
     }
+    let sentiment = fetch_market_sentiment(&source, &ai).await.unwrap();
     println!(
         "\n===== Mock Market Sentiment: {} =====\n",
-        fetch_market_sentiment(&source, &ai).await.unwrap()
+        sentiment
     );
 
-    let sentiment = fetch_market_sentiment(&source, &ai).await.unwrap();
     assert!(
         (-1.0..=1.0).contains(&sentiment.value()),
         "sentiment must be in [-1, 1], got {}",
@@ -95,12 +95,12 @@ async fn real_cnbc_with_qwen() {
             item.description
         );
     }
+    let sentiment = fetch_market_sentiment(&source, &ai).await.unwrap();
     println!(
         "\n===== Qwen Market Sentiment: {} =====\n",
-        fetch_market_sentiment(&source, &ai).await.unwrap()
+        sentiment
     );
 
-    let sentiment = fetch_market_sentiment(&source, &ai).await.unwrap();
     assert!(
         (-1.0..=1.0).contains(&sentiment.value()),
         "sentiment must be in [-1, 1], got {}",

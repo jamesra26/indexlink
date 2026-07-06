@@ -14,6 +14,8 @@
 //! # }
 //! ```
 
+use std::time::Duration as StdDuration;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use quick_xml::events::Event;
@@ -25,6 +27,9 @@ use crate::{AiClientError, AiProvider, Sentiment};
 /// CNBC US Top News RSS 地址。
 pub const CNBC_TOP_NEWS_RSS: &str =
     "https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=100003114";
+
+/// RSS HTTP 请求默认超时（30 秒）。
+const DEFAULT_HTTP_TIMEOUT: StdDuration = StdDuration::from_secs(30);
 
 // ─── NewsItem ─────────────────────────────────────────────────────────────────
 
@@ -96,7 +101,10 @@ impl RssNewsSource {
     pub fn new() -> Self {
         Self {
             url: CNBC_TOP_NEWS_RSS.to_owned(),
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(DEFAULT_HTTP_TIMEOUT)
+                .build()
+                .expect("reqwest::Client::builder with standard options must not fail"),
             max_age: Duration::hours(24),
             max_items: 10,
         }
@@ -107,7 +115,10 @@ impl RssNewsSource {
     pub fn with_config(url: String, max_age_hours: i64, max_items: usize) -> Self {
         Self {
             url,
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(DEFAULT_HTTP_TIMEOUT)
+                .build()
+                .expect("reqwest::Client::builder with standard options must not fail"),
             max_age: Duration::hours(max_age_hours),
             max_items,
         }
@@ -177,7 +188,7 @@ impl RssNewsSource {
                         NewsSourceError::Parse(err.to_string())
                     })?;
                     append_text(
-                        text.trim(),
+                        &text,
                         capture_title,
                         capture_description,
                         capture_pubdate,
@@ -189,7 +200,7 @@ impl RssNewsSource {
                 Ok(Event::CData(ref e)) => {
                     let text = String::from_utf8_lossy(e.as_ref());
                     append_text(
-                        text.trim(),
+                        text.as_ref(),
                         capture_title,
                         capture_description,
                         capture_pubdate,
@@ -203,6 +214,11 @@ impl RssNewsSource {
                     match tag.as_str() {
                         "item" if in_item => {
                             in_item = false;
+                            // 条目解析完成后统一 trim，避免内联标签
+                            // 导致碎片间空格丢失。
+                            title = title.trim().to_string();
+                            description = description.trim().to_string();
+                            pub_date_str = pub_date_str.trim().to_string();
                             if !title.is_empty() && !pub_date_str.is_empty() {
                                 items.push(RawNewsItem {
                                     title: std::mem::take(&mut title),
@@ -243,6 +259,8 @@ impl RssNewsSource {
             .filter(|item| item.pub_date >= cutoff)
             .collect();
 
+        // 按发布时间降序排列，确保截断时保留最新的 N 条。
+        converted.sort_by_key(|item| std::cmp::Reverse(item.pub_date));
         converted.truncate(self.max_items);
 
         if converted.is_empty() {
@@ -361,7 +379,12 @@ fn truncate_at_sentence(text: &str, max_chars: usize) -> &str {
         return text;
     }
 
-    let end = text.floor_char_boundary(max_chars);
+    // 使用 char_indices 定位第 max_chars 个字符的字节边界，
+    // 避免 floor_char_boundary 按字节截断对多字节字符（如中文）的语义不一致。
+    let end = match text.char_indices().nth(max_chars) {
+        Some((idx, _)) => idx,
+        None => return text,
+    };
     let truncated = &text[..end];
 
     // 回退到最后一个句号/问号/感叹号
