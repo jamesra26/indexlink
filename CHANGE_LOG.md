@@ -30,6 +30,24 @@
   - `cargo fmt -p ai-client --check` 通过。
   - 手动跑过 `real_cnbc_with_mock`，验证 10 条真实 CNBC 新闻正常拉取、描述完整、prompt 格式正确。
 
+### 2026-07-06 23:45 UTC+10
+
+- 执行模型：Claude。
+- 变更类型：fix（AI 感知层 code review 修复）。
+- 涉及文件：
+  - `crates/ai-client/src/news.rs`
+  - `crates/ai-client/tests/news.rs`
+- 变更内容：
+  - `RssNewsSource::new` / `with_config` 改用 `reqwest::Client::builder().timeout(DEFAULT_HTTP_TIMEOUT)`（30 秒），避免 HTTP 请求无超时挂起。
+  - `parse_items` 将逐片段 `trim()` 改为条目解析完成后统一起 trim，修复内联 HTML 标签导致词间空格丢失（如 `as<b>investors</b> cheered` → `asinvestors cheered`）。
+  - `filter_and_convert` 在 `truncate` 前先 `sort_by_key(|item| Reverse(item.pub_date))`，确保保留最新 N 条，满足 trait 文档「按时间降序」契约。
+  - `truncate_at_sentence` 改用 `char_indices().nth(max_chars)` 定位字符边界，修复 `floor_char_boundary` 对多字节字符（中文）的字节/字符语义不一致。
+  - 集成测试 `real_cnbc_with_mock` / `real_cnbc_with_qwen` 将 `fetch_market_sentiment` 从重复两次调用改为一次调用复用结果，避免重复网络/API 计费。
+- 验证：
+  - `cargo test -p ai-client --locked` 22 个 news 单测通过。
+  - `cargo clippy -p ai-client --all-targets --all-features -- -D warnings` 通过。
+  - 手动跑过 `real_cnbc_with_mock`，10 条真实 CNBC 新闻正常拉取，管道全链路通过。
+
 ### 2026-07-06 20:55 UTC+10
 
 - 执行模型：GPT-5。
