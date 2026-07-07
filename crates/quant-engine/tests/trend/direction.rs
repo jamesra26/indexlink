@@ -31,23 +31,23 @@ fn stub_regime_is_neutral() {
 }
 
 #[test]
-fn evaluate_trend_returns_not_implemented() {
+fn evaluate_trend_returns_real_neutral_signal() {
     let snapshot = neutral_trend_snapshot();
     let config = trend_balanced_test_config();
-    assert_eq!(
-        evaluate_trend(&snapshot, &config).unwrap_err(),
-        QuantError::NotImplemented,
-        "evaluate_trend 落地前应返回 NotImplemented"
-    );
+    let signal = evaluate_trend(&snapshot, &config).unwrap();
+
+    assert!((signal.score.value() - NEUTRAL_PERCENTILE).abs() < NEUTRAL_TOLERANCE);
+    assert_eq!(signal.regime, TrendRegime::Neutral);
 }
 
 #[test]
 #[allow(deprecated)]
-fn evaluate_trend_or_stub_falls_back_to_neutral_stub() {
+fn evaluate_trend_or_stub_returns_real_signal_after_implementation() {
     let snapshot = neutral_trend_snapshot();
     let config = trend_balanced_test_config();
-    let signal = evaluate_trend_or_stub(&snapshot, &config).expect("NotImplemented 应降级为 stub");
-    assert_eq!(signal.score.value(), NEUTRAL_PERCENTILE);
+    let signal = evaluate_trend_or_stub(&snapshot, &config).expect("真实趋势信号应成功返回");
+
+    assert!((signal.score.value() - NEUTRAL_PERCENTILE).abs() < NEUTRAL_TOLERANCE);
     assert_eq!(signal.regime, TrendRegime::Neutral);
 }
 
@@ -98,6 +98,27 @@ fn trend_falling_knife_market_score_is_high() {
         "接飞刀场景得分应 > {EXPENSIVE_SCORE_LOWER_BOUND:.2}，实际 {}",
         signal.score
     );
+}
+}
+
+trend_deferred_test! {
+fn trend_score_clamps_tiny_weight_sum_drift_at_upper_bound() {
+    // TrendWeights 允许权重和存在 1e-9 内的浮点漂移；当各分量都命中上边界时，
+    // composite 可能略大于 1.0。evaluate_trend 应钳制到 Percentile 上界而非 panic。
+    let snapshot = falling_knife_trend_snapshot();
+    let weights = TrendWeights::new(0.5, 0.5, 0.5 * EXACT_FLOAT_TOLERANCE).unwrap();
+    let config = TrendConfig::new(
+        weights,
+        trend_test_percentile_config(),
+        TREND_OVERHEATED_ABOVE,
+        TREND_FALLING_KNIFE_ABOVE,
+    )
+    .unwrap();
+
+    let signal = evaluate_trend(&snapshot, &config).unwrap();
+
+    assert_eq!(signal.score.value(), MAX_PERCENTILE);
+    assert_eq!(signal.regime, TrendRegime::FallingKnife);
 }
 }
 
