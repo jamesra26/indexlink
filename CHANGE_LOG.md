@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### 2026-07-07 21:40 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：Broker paper trading 边界与 Futu/Moomoo MVP 路线。
+- 涉及文件：
+  - `Cargo.toml`
+  - `crates/broker/Cargo.toml`
+  - `crates/broker/src/lib.rs`
+  - `docs/minimum_mvp.md`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `broker` crate，定义 provider-neutral `BrokerClient` port，为后续 Futu/Moomoo OpenD adapter 预留边界。
+  - 新增 `BrokerEnvironment`，区分 `Paper` 与 `Live`，默认 demo 路径面向虚拟账号 / paper trading。
+  - 新增 `BrokerOrderRequest`、`BrokerOrderAck`、`BrokerOrderStatus` 与安全错误类型。
+  - 订单请求通过构造器校验 idempotency key、ASCII symbol、正数数量、limit order 价格等不变量。
+  - 新增 `MockBroker`，默认只接受 paper orders，拒绝 live orders；用于本地 demo 与后续 decision-to-order 测试。
+  - 更新 `docs/minimum_mvp.md`，将 Futu/Moomoo OpenD paper trading、broker ack、live trading 保护开关和演示级前端展示纳入全项目 MVP 路线。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p broker --locked` 通过。
+  - `cargo clippy -p broker --all-targets --all-features -- -D warnings` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-07 00:37 UTC+10
 
 - 执行模型：GPT-5。

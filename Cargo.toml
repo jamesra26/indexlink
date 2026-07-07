@@ -7,6 +7,7 @@ members = [
     "crates/storage",
     "crates/api",
     "crates/ai-client",
+    "crates/broker",
     "apps/server",
 ]
 
@@ -17,6 +18,7 @@ edition = "2021"
 [workspace.dependencies]
 core-domain = { path = "crates/core-domain" }
 ai-client = { path = "crates/ai-client" }
+broker = { path = "crates/broker" }
 investment-plans = { path = "crates/investment-plans" }
 indexlink-storage = { path = "crates/storage" }
 indexlink-api = { path = "crates/api" }
