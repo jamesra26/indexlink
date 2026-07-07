@@ -427,7 +427,7 @@ pub struct OpenDPaperBroker<G> {
 impl<G> OpenDPaperBroker<G> {
     /// Build a paper-only OpenD broker adapter.
     pub fn new(config: OpenDConnectionConfig, gateway: G) -> Result<Self, BrokerError> {
-        if config.environment() != BrokerEnvironment::Paper {
+        if config.environment() != BrokerEnvironment::Paper || config.live_trading_enabled() {
             return Err(BrokerError::PaperTradingRequired {
                 configured: config.environment(),
             });
@@ -763,6 +763,27 @@ mod tests {
             OpenDPaperBroker::new(config, FakeOpenDGateway::default()).map(|_| ()),
             Err(BrokerError::PaperTradingRequired {
                 configured: BrokerEnvironment::Live,
+            })
+        );
+    }
+
+    /// Verify OpenD paper adapter rejects paper config with live gate enabled.
+    #[test]
+    fn opend_paper_broker_rejects_enabled_live_gate() {
+        let config = OpenDConnectionConfig::new(
+            BrokerProvider::Futu,
+            "127.0.0.1",
+            11111,
+            BrokerEnvironment::Paper,
+            None,
+            true,
+        )
+        .unwrap();
+
+        assert_eq!(
+            OpenDPaperBroker::new(config, FakeOpenDGateway::default()).map(|_| ()),
+            Err(BrokerError::PaperTradingRequired {
+                configured: BrokerEnvironment::Paper,
             })
         );
     }
