@@ -18,6 +18,9 @@
   - 默认 sentiment 可用时使用 `70/20/10`；sentiment 不可用时降级为 `90/10/0`。
   - 将 fundamental、trend 和 sentiment 归一化后合成为 `final_score`、`multiplier` 与 `action`。
   - trend 非中性体制会触发 `TacticalDelay`，避免过热追高或接飞刀。
+  - Review fix：`DecisionSignal` 保留原始 `DecisionInput` 快照，便于后续审计、存储和回放。
+  - Review fix：sentiment 不可用时在合成公式中使用中性映射值 `0.5`，避免自定义 fallback 权重误把缺失情绪当成极度悲观。
+  - Review fix：极端低分会映射到 `Multiplier::MIN`，使 `Action::Skip` 在 Decision Engine 中可达。
   - 新增 Decision Engine 单元测试，覆盖默认权重、非法权重、标准/加码/减量、TacticalDelay 和 AI 降级。
   - 更新 `docs/minimum_mvp.md`，标记 Decision Engine 已完成，并将下一步调整为 Decision Preview API + MockBroker 串联。
 - 验证：

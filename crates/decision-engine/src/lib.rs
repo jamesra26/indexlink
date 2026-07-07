@@ -12,6 +12,8 @@ use core_domain::{Action, Multiplier, Percentile};
 use quant_engine::{FundamentalSignal, TrendRegime, TrendSignal, Weight};
 
 const WEIGHT_SUM_TOLERANCE: f64 = 1e-9;
+const NEUTRAL_SENTIMENT_SCORE: f64 = 0.5;
+const SKIP_SCORE_AT_OR_BELOW: f64 = 0.05;
 
 /// Default fundamental layer weight in the normal 70/20/10 model.
 pub const DEFAULT_FUNDAMENTAL_WEIGHT: f64 = 0.70;
@@ -137,6 +139,12 @@ pub enum DecisionWeightMode {
 /// Decision result returned by the engine.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DecisionSignal {
+    /// Original input snapshot used to produce this decision.
+    ///
+    /// Keeping the raw input alongside derived scores makes later audit,
+    /// storage, and replay flows traceable without relying on callers to
+    /// persist a separate object.
+    pub input: DecisionInput,
     /// Final investability score in `[0.0, 1.0]`.
     ///
     /// Higher values mean the engine is more willing to increase the planned
@@ -178,6 +186,8 @@ pub enum DecisionError {
 /// - fundamental score is inverted, because lower valuation is more attractive;
 /// - trend score rewards neutral timing and penalizes overheat/falling-knife extremes;
 /// - sentiment maps `[-1.0, 1.0]` into `[0.0, 1.0]`.
+/// - unavailable sentiment contributes neutral `0.5` if a custom fallback still
+///   assigns non-zero sentiment weight.
 #[must_use]
 pub fn evaluate_decision(input: &DecisionInput, config: &DecisionConfig) -> DecisionSignal {
     let (weights, weight_mode, sentiment_score) = match input.sentiment {
@@ -195,14 +205,18 @@ pub fn evaluate_decision(input: &DecisionInput, config: &DecisionConfig) -> Deci
 
     let fundamental_score = input.fundamental.score.invert();
     let trend_score = trend_timing_score(input.trend.score);
-    let sentiment_value = sentiment_score.map_or(0.0, Percentile::value);
+    let sentiment_value = sentiment_score.map_or(NEUTRAL_SENTIMENT_SCORE, Percentile::value);
 
     let composite = weights.fundamental_weight.value() * fundamental_score.value()
         + weights.trend_weight.value() * trend_score.value()
         + weights.sentiment_weight.value() * sentiment_value;
     let final_score =
         Percentile::new(composite.clamp(0.0, 1.0)).expect("clamp keeps score in [0.0, 1.0]");
-    let multiplier = Multiplier::new_clamped(0.5 + final_score.value());
+    let multiplier = if final_score.value() <= SKIP_SCORE_AT_OR_BELOW {
+        Multiplier::MIN
+    } else {
+        Multiplier::new_clamped(0.5 + final_score.value())
+    };
     let action = if input.trend.regime == TrendRegime::Neutral {
         multiplier.to_action()
     } else {
@@ -210,6 +224,7 @@ pub fn evaluate_decision(input: &DecisionInput, config: &DecisionConfig) -> Deci
     };
 
     DecisionSignal {
+        input: input.clone(),
         final_score,
         multiplier,
         action,
@@ -334,6 +349,8 @@ mod tests {
         assert_close(result.multiplier.value(), 1.0);
         assert_eq!(result.action, Action::Standard);
         assert_eq!(result.weight_mode, DecisionWeightMode::Normal);
+        assert_eq!(result.input.fundamental.score.value(), 0.5);
+        assert_eq!(result.input.trend.regime, TrendRegime::Neutral);
     }
 
     /// Verify cheap fundamentals and positive sentiment increase contribution.
@@ -409,5 +426,46 @@ mod tests {
         assert_eq!(result.weights.sentiment_weight.value(), 0.0);
         assert_eq!(result.sentiment_score, None);
         assert_close(result.final_score.value(), 0.5);
+    }
+
+    /// Verify unavailable sentiment is neutral even with custom non-zero fallback weight.
+    #[test]
+    fn unavailable_sentiment_uses_neutral_value_for_custom_fallback_weights() {
+        let config = DecisionConfig::new(
+            DecisionWeights::default(),
+            DecisionWeights::new(0.5, 0.0, 0.5).unwrap(),
+        );
+        let result = evaluate_decision(
+            &input(
+                0.5,
+                0.0,
+                TrendRegime::Neutral,
+                DecisionSentiment::Unavailable,
+            ),
+            &config,
+        );
+
+        assert_eq!(result.sentiment_score, None);
+        assert_close(result.final_score.value(), 0.5);
+        assert_close(result.multiplier.value(), 1.0);
+        assert_eq!(result.action, Action::Standard);
+    }
+
+    /// Verify extreme low scores can still skip the current execution.
+    #[test]
+    fn extreme_low_score_can_skip_execution() {
+        let result = evaluate_decision(
+            &input(
+                1.0,
+                0.0,
+                TrendRegime::Neutral,
+                DecisionSentiment::Available(Sentiment::MIN),
+            ),
+            &DecisionConfig::default(),
+        );
+
+        assert_close(result.final_score.value(), 0.0);
+        assert_eq!(result.multiplier, Multiplier::MIN);
+        assert_eq!(result.action, Action::Skip);
     }
 }
