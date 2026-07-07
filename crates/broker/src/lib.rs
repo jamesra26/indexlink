@@ -552,16 +552,11 @@ fn validate_positive(field: &'static str, value: Decimal) -> Result<(), BrokerVa
 }
 
 fn normalize_opend_host(value: String) -> Result<String, BrokerValidationError> {
-    let normalized = value.trim().to_owned();
-    if normalized.is_empty()
-        || normalized.len() > MAX_OPEND_HOST_LEN
-        || !normalized.is_ascii()
-        || normalized.chars().any(char::is_control)
-    {
-        Err(BrokerValidationError::InvalidOpenDHost)
-    } else {
-        Ok(normalized)
-    }
+    normalize_printable_ascii(
+        value,
+        MAX_OPEND_HOST_LEN,
+        BrokerValidationError::InvalidOpenDHost,
+    )
 }
 
 fn validate_opend_port(port: u16) -> Result<(), BrokerValidationError> {
@@ -573,13 +568,25 @@ fn validate_opend_port(port: u16) -> Result<(), BrokerValidationError> {
 }
 
 fn normalize_opend_account_id(value: String) -> Result<String, BrokerValidationError> {
+    normalize_printable_ascii(
+        value,
+        MAX_OPEND_ACCOUNT_ID_LEN,
+        BrokerValidationError::InvalidAccountId,
+    )
+}
+
+fn normalize_printable_ascii(
+    value: String,
+    max_len: usize,
+    error: BrokerValidationError,
+) -> Result<String, BrokerValidationError> {
     let normalized = value.trim().to_owned();
     if normalized.is_empty()
-        || normalized.len() > MAX_OPEND_ACCOUNT_ID_LEN
+        || normalized.len() > max_len
         || !normalized.is_ascii()
         || normalized.chars().any(char::is_control)
     {
-        Err(BrokerValidationError::InvalidAccountId)
+        Err(error)
     } else {
         Ok(normalized)
     }
