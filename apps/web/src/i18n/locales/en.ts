@@ -25,7 +25,6 @@ export default {
   dashboard: {
     valuation: {
       title: 'Current Market Valuation',
-      hint: 'Measures where price sits in its historical distribution, not intrinsic value',
       composite: 'Composite valuation percentile',
       suggestedAction: 'Suggested action',
       multiplier: 'Execution multiplier',

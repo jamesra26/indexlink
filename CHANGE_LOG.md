@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### 2026-07-08 18:25 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端全局样式调整。
+- 涉及文件：
+  - `apps/web/src/index.css`
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 在全局 base layer 中新增 `::-webkit-scrollbar-button` 覆盖，隐藏 Chromium/WebKit 滚动条两端的方向箭头按钮，同时保留滚动条本体。
+  - 清理 `valuation-card.tsx` 中前序改动遗留的未使用 import，恢复 ESLint 通过。
+- 验证：
+  - `pnpm lint` 通过。
+  - `ReadLints` 检查显示 `index.css` 中 Tailwind v4 专用 `@theme`、`@custom-variant`、`@apply` 为 CSS 语言服务 warning，属于既有框架语法识别问题；`valuation-card.tsx` 无诊断。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+  - 本次未运行 `pnpm build`。
+
+### 2026-07-08 18:12 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 布局调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/index.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Dashboard 下半部分从两段独立三列网格改为左右两列流式布局。
+  - 左侧两列依次放置 8 个指标卡和 Performance Comparison，右侧一列依次放置 Latest Decision 与 Risk，避免 Latest Decision 较高时让左侧指标卡与下方图表之间产生空白。
+- 验证：
+  - `pnpm lint` 通过。
+  - `ReadLints` 检查 `dashboard/index.tsx` 无诊断。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+  - 本次未运行 `pnpm build`。
+
 ### 2026-07-08 18:06 UTC+10
 
 - 执行模型：GPT-5.5。

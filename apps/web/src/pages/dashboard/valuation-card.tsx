@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CircleHelp, Gauge, Info } from 'lucide-react'
+import { CircleHelp, Gauge } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, XAxis, YAxis } from 'recharts'
 
@@ -10,7 +10,6 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
@@ -74,10 +73,6 @@ export function ValuationCard() {
           <Gauge className="size-4 text-muted-foreground" />
           {t('dashboard.valuation.title')}
         </CardTitle>
-        <CardDescription className="flex items-center gap-1">
-          <Info className="size-3" />
-          {t('dashboard.valuation.hint')}
-        </CardDescription>
         {!renderPercentiles && !isPending && data && (
           <CardAction>
             <button
@@ -113,7 +108,7 @@ export function ValuationCard() {
                   </span>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-right sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-12 text-right sm:grid-cols-4">
                 <div className="text-right">
                   <div className="text-xs text-muted-foreground">
                     {t('dashboard.valuation.suggestedAction')}

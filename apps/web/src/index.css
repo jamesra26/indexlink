@@ -214,4 +214,9 @@
   html {
     @apply font-sans;
     }
+  ::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+    }
 }

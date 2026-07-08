@@ -25,7 +25,6 @@ export default {
   dashboard: {
     valuation: {
       title: '当前市场估值',
-      hint: '仅测量价格在历史分布中的位置，不构成价值判断',
       composite: '综合估值分位',
       suggestedAction: '建议动作',
       multiplier: '执行倍率',
