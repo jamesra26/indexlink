@@ -2,6 +2,282 @@
 
 ## Unreleased
 
+### 2026-07-08 16:57 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 视觉调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Current Market Valuation 柱状图 tooltip 内容卡片最大宽度从 `max-w-80` 调整为 `max-w-40`，使说明卡片约缩窄一半。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:55 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 信息补充。
+- 涉及文件：
+  - `apps/web/src/i18n/locales/zh.ts`
+  - `apps/web/src/i18n/locales/en.ts`
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 为 Current Market Valuation 的 CAPE、ERP、MA200、RSI、VIX 五个 percentile 柱状图 tooltip 增加指标解释。
+  - tooltip 现在展示指标名、百分比数值和本地化说明段落。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:54 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 视觉调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Current Market Valuation 的 percentile 柱状图从空心柱恢复为实心默认前景色柱。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:53 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 视觉调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Current Market Valuation 的 percentile 柱状图从实心柱改为空心柱。
+  - 柱体填充改为透明，保留默认前景色描边。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:52 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 视觉调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - Current Market Valuation 的 percentile 柱状图取消按分位区间着色。
+  - 移除 Recharts `Cell` 分色逻辑，所有柱子统一使用默认前景色。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:48 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端修复（Dashboard 卡片布局）。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/latest-decision-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Latest Decision 指标区的响应式列数从 5 列改为 4 列，匹配实际 4 个指标卡，避免末尾空列导致水平分布不均。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `ReadLints` 检查 `latest-decision-card.tsx` 无诊断。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:43 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端修复（Dashboard 图表 tooltip）。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 为 Current Market Valuation 的 Recharts tooltip 增加自定义 formatter。
+  - tooltip 现在使用当前柱子的指标标签，并通过 `gap` 分隔标签与数值。
+  - percentile 数值统一显示 `%` 后缀，例如 `86%`。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `ReadLints` 检查 `valuation-card.tsx` 无诊断。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:41 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端规范对齐（Dashboard 图表）。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Current Market Valuation 中 CAPE、ERP、MA200、RSI、VIX 五个 percentile 指标由手写 `div` 柱状图改为 Recharts `BarChart`。
+  - 使用 `ChartContainer`、`ChartTooltip`、`ChartTooltipContent` 接入 shadcn chart 封装，符合前端图表规范。
+  - 保留 0-100 percentile 语义、指标标签、柱顶百分比与原有分位颜色区间（低位 emerald、中位 sky、高位 amber、极高 rose）。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `ReadLints` 检查 `valuation-card.tsx` 无诊断。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:37 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 视觉调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Current Market Valuation 中 CAPE、ERP、MA200、RSI、VIX 五个 percentile 指标从横向进度条改为垂直柱状图。
+  - 保留原有分位区间颜色语义，并在柱状图上方直接展示百分比数值。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:36 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 语义修正。
+- 涉及文件：
+  - `apps/web/src/api/types.ts`
+  - `apps/web/src/api/mock.ts`
+  - `apps/web/src/i18n/locales/zh.ts`
+  - `apps/web/src/i18n/locales/en.ts`
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Current Market Valuation 中的 `nextDcaPrice` 修正为 `baseDcaAmount`，避免把下期预计投入误表述为价格。
+  - 卡片右侧改为展示“预计执行金额”，由 `baseDcaAmount * suggestedMultiplier` 计算得到，例如 `2000 * 0.75 = 1500`。
+  - 更新中英文 i18n 文案，将 “Next DCA price / 下期定投价格” 改为 “Expected amount / 预计执行金额”。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:32 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 信息补充。
+- 涉及文件：
+  - `apps/web/src/api/types.ts`
+  - `apps/web/src/api/mock.ts`
+  - `apps/web/src/i18n/locales/zh.ts`
+  - `apps/web/src/i18n/locales/en.ts`
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - `MarketOverview` mock 数据新增 `currency`、`nextDcaPrice` 与 `nextDcaTime`，用于展示下期定投价格和定投时间。
+  - Current Market Valuation 卡片在执行倍率右侧新增下期定投价格、下期定投时间，并继续保留建议动作展示。
+  - 补齐中英文 i18n 文案。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 16:30 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 信息补充。
+- 涉及文件：
+  - `apps/web/src/api/types.ts`
+  - `apps/web/src/api/mock.ts`
+  - `apps/web/src/i18n/locales/zh.ts`
+  - `apps/web/src/i18n/locales/en.ts`
+  - `apps/web/src/lib/decision.ts`
+  - `apps/web/src/pages/dashboard/latest-decision-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - `LatestDecision` mock 数据新增 `executionPrice` 与 `executionTime`，用于展示本期定投价格与定投时间。
+  - 最近一次决策卡片在倍率右侧新增本期定投价格、定投时间，并保留执行金额展示。
+  - 新增价格格式化函数，价格保留两位小数，不影响金额整数展示。
+  - 补齐中英文 i18n 文案。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 15:55 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端修复（Header Logo）。
+- 涉及文件：
+  - `apps/web/src/components/layout/app-header.tsx`
+  - `apps/web/src/components/layout/news-ticker.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Header 左上角 lucide `LineChart` 图标替换为 `public/logo.png` 静态图片。
+  - 清理 `news-ticker.tsx` 中未使用的 `t` 变量，恢复 lint/build 通过。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `ReadLints` 检查 `app-header.tsx`、`news-ticker.tsx` 无诊断。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 15:30 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端布局调整。
+- 涉及文件：
+  - `apps/web/src/components/layout/app-layout.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将实时新闻滚动条移动到 header 上方，作为应用最顶部的信息条。
+  - 保持 `--app-chrome-height` 为新闻条 + header 的总高度，使左侧 sidebar 仍从顶部栏下方开始。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+
+### 2026-07-08 15:25 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端修复（Sidebar Provider 层级）。
+- 涉及文件：
+  - `apps/web/src/components/layout/app-layout.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 `SidebarProvider` 上移为 `AppLayout` 的外层布局容器，覆盖 `AppHeader`、`NewsTicker`、`AppSidebar` 与页面内容。
+  - 保留侧栏与主内容的内部横向 flex 区域，避免 `AppHeader` 中的 `SidebarTrigger` 在 Provider 外调用 `useSidebar`。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `ReadLints` 检查 `app-layout.tsx` 无诊断。
+  - `cargo test -p core-domain` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 15:15 UTC+10
+
+- 执行模型：Fable 5。
+- 变更类型：前端 Dashboard 布局（MVP，纯 mock 数据，不连后端）。
+- 涉及文件：
+  - `apps/web/vite.config.ts`、`apps/web/tsconfig.json`、`apps/web/tsconfig.app.json`、`apps/web/eslint.config.js`、`apps/web/index.html`、`apps/web/components.json`
+  - `apps/web/src/index.css`、`apps/web/src/main.tsx`、`apps/web/src/App.tsx`（删除 `src/App.css`）
+  - `apps/web/src/i18n/`（`index.ts`、`locales/zh.ts`、`locales/en.ts`）
+  - `apps/web/src/api/`（`types.ts`、`mock.ts`、`queries.ts`）
+  - `apps/web/src/stores/ui.ts`
+  - `apps/web/src/components/layout/`（`app-layout.tsx`、`app-header.tsx`、`app-sidebar.tsx`、`news-ticker.tsx`）
+  - `apps/web/src/components/ui/`、`src/hooks/use-mobile.ts`、`src/lib/utils.ts`（shadcn 生成）
+  - `apps/web/src/lib/decision.ts`
+  - `apps/web/src/pages/dashboard/`（`index.tsx`、`valuation-card.tsx`、`score-cards.tsx`、`latest-decision-card.tsx`、`risk-card.tsx`、`returns-cards.tsx`、`comparison-chart.tsx`）
+  - `apps/web/src/pages/decisions/index.tsx`、`apps/web/src/pages/plans/index.tsx`（占位页）
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 接入 `@tailwindcss/vite`（Tailwind v4）与 `@` 路径别名；以 `shadcn init`（radix + nova 预设）初始化主题，并添加 button/card/badge/separator/sidebar/chart/tooltip/dropdown-menu/avatar/skeleton/scroll-area/breadcrumb 组件。
+  - 按 PLAN.md 完成应用外壳：header 左上 logo、右上 mock 账户下拉与中英切换；header 下方新闻滚动条（CSS marquee，悬停暂停）；左侧可收放 sidebar（icon 折叠 + rail），其余区域为路由页面。
+  - 路由使用 react-router（`/`、`/decisions/:id?`、`/plans/:id?`，后两者为占位页）；mock 服务端数据统一经 @tanstack/react-query 查询钩子提供（后续可直接替换为真实 fetch）；图表显示范围等临时 UI 状态使用 valtio。
+  - Dashboard 页面：当前市场估值卡（综合分位、建议动作、执行倍率、CAPE/ERP/MA200/RSI/VIX 分位条）、70/20/10 得分卡（基本面/趋势面/AI 情绪/综合）、最近一次决策卡（动作、基准金额、倍率、执行金额、摘要、详情入口）、风险提示卡、收益卡（总收益/持仓收益/确定收益/累计投入）、普通定投 vs 自适应定投累计收益对比图（recharts AreaChart + shadcn chart 容器，支持 1 年/3 年/全部范围切换）。
+  - i18next + 浏览器语言检测实现中英双语；mock 数据内文案按语言本地化。
+  - eslint 对 shadcn 生成的 `src/components/ui/**` 与 `use-mobile.ts` 豁免 fast-refresh / set-state-in-effect 规则，业务代码不豁免。
+- 验证：
+  - `pnpm build`（`tsc -b && vite build`）通过。
+  - `pnpm lint` 通过。
+  - 本次未改动 Rust 代码，仍运行 `cargo test -p core-domain --locked` 通过。
+
 ### 2026-07-07 23:47 UTC+10
 
 - 执行模型：GPT-5。
