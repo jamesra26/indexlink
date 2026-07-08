@@ -2,6 +2,69 @@
 
 ## Unreleased
 
+### 2026-07-08 17:59 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 交互位置调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 将 Current Market Valuation 的 `why?` 入口从内容区底部移动到卡片 header 右上角。
+  - 使用 shadcn `CardAction` 对齐右上角动作区；展开中或展开后隐藏 `why?`，收回完成后重新显示。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 17:57 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 交互动画。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 为 Current Market Valuation 的 `why?` percentile 展开区增加拉伸/收回动画。
+  - 新增独立渲染状态：展开时先挂载内容再从 `grid-rows-[0fr]` 过渡到 `grid-rows-[1fr]`；收回时播放反向动画，动画结束后卸载内容，避免折叠状态残留高度或隐藏内容可聚焦。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 17:54 UTC+10
+
+- 执行模型：Fable 5。
+- 变更类型：前端 Dashboard 视觉/交互调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - `why?` 触发入口从 ghost 按钮块改为灰色下划线文字链接（`text-muted-foreground` + `underline` + `cursor-pointer`，hover 变前景色）。
+  - 折叠状态移除原先的 `bg-muted/20` 占位区块；并为卡片添加 `self-start`，避免被同行更高的 Latest Decision 卡片拉伸产生大片留白，展开后再自然增高。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
+### 2026-07-08 17:52 UTC+10
+
+- 执行模型：GPT-5.5。
+- 变更类型：前端 Dashboard 交互调整。
+- 涉及文件：
+  - `apps/web/src/pages/dashboard/valuation-card.tsx`
+  - `apps/web/src/i18n/locales/zh.ts`
+  - `apps/web/src/i18n/locales/en.ts`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - Current Market Valuation 默认隐藏 percentile 柱状图，仅显示 `why?` 按钮。
+  - 点击 `why?` 后在原卡片内垂直展开柱状图和指标说明问号；底部新增“收回 / Collapse”按钮，点击后恢复折叠状态。
+  - 补齐展开/收回按钮的中英文 i18n 文案。
+- 验证：
+  - `pnpm lint` 通过。
+  - `pnpm build` 通过；Vite 仅提示产物 chunk 超过 500 kB 的体积警告。
+  - `cargo test -p core-domain --locked` 通过：13 个单元测试全部通过。
+
 ### 2026-07-08 17:11 UTC+10
 
 - 执行模型：GPT-5.5。

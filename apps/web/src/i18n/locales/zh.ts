@@ -31,6 +31,8 @@ export default {
       multiplier: '执行倍率',
       expectedAmount: '预计执行金额',
       nextDcaTime: '下期定投时间',
+      why: 'why?',
+      collapse: '收回',
       metrics: {
         cape: 'CAPE 分位',
         erp: 'ERP 分位',
