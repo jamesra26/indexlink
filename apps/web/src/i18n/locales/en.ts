@@ -31,6 +31,8 @@ export default {
       multiplier: 'Execution multiplier',
       expectedAmount: 'Expected amount',
       nextDcaTime: 'Next DCA time',
+      why: 'why?',
+      collapse: 'Collapse',
       metrics: {
         cape: 'CAPE percentile',
         erp: 'ERP percentile',

@@ -120,7 +120,7 @@
     --percentile-neutral: var(--semantic-info);
     --percentile-high: var(--semantic-warning);
     --percentile-extreme: var(--semantic-negative);
-    --chart-dca: var(--semantic-positive-primary);
+    --chart-dca: var(--chart-1);
     --chart-adaptive: var(--semantic-positive);
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
