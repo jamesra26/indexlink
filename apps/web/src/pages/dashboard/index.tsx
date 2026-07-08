@@ -15,12 +15,12 @@ export default function DashboardPage() {
         <div className="flex flex-col gap-4 lg:col-span-2">
           <ScoreCards />
           <ReturnsCards />
+          <ComparisonChart />
         </div>
-        <LatestDecisionCard />
-      </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <ComparisonChart />
-        <RiskCard />
+        <div className="flex flex-col gap-4">
+          <LatestDecisionCard />
+          <RiskCard />
+        </div>
       </div>
     </div>
   )
