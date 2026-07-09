@@ -1,6 +1,7 @@
 use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
+use broker::{BrokerClient, MockBroker};
 use indexlink_storage::{PostgresInvestmentPlanRepository, Storage};
 use investment_plans::InvestmentPlanService;
 
@@ -23,6 +24,7 @@ impl fmt::Debug for ReadinessBackend {
 pub struct ApiState {
     readiness: Arc<ReadinessBackend>,
     plans: InvestmentPlanService,
+    broker: Arc<dyn BrokerClient>,
     version: Arc<str>,
 }
 
@@ -32,6 +34,7 @@ impl fmt::Debug for ApiState {
             .debug_struct("ApiState")
             .field("readiness", &self.readiness)
             .field("plans", &"InvestmentPlanService")
+            .field("broker", &"BrokerClient")
             .field("version", &self.version)
             .finish()
     }
@@ -47,6 +50,7 @@ impl ApiState {
         Self {
             readiness: Arc::new(ReadinessBackend::Storage(storage)),
             plans,
+            broker: Arc::new(MockBroker::paper_only()),
             version: version.into(),
         }
     }
@@ -71,9 +75,26 @@ impl ApiState {
         plans: InvestmentPlanService,
         version: impl Into<Arc<str>>,
     ) -> Self {
+        Self::with_readiness_plans_and_broker(
+            readiness,
+            plans,
+            Arc::new(MockBroker::paper_only()),
+            version,
+        )
+    }
+
+    /// 使用可替换的 readiness、investment plan service 与 broker 构建状态。
+    #[must_use]
+    pub fn with_readiness_plans_and_broker(
+        readiness: Arc<dyn ReadinessCheck>,
+        plans: InvestmentPlanService,
+        broker: Arc<dyn BrokerClient>,
+        version: impl Into<Arc<str>>,
+    ) -> Self {
         Self {
             readiness: Arc::new(ReadinessBackend::Custom(readiness)),
             plans,
+            broker,
             version: version.into(),
         }
     }
@@ -94,6 +115,10 @@ impl ApiState {
 
     pub(crate) fn plans(&self) -> &InvestmentPlanService {
         &self.plans
+    }
+
+    pub(crate) fn broker(&self) -> &dyn BrokerClient {
+        self.broker.as_ref()
     }
 }
 

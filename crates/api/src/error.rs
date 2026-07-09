@@ -1,4 +1,5 @@
 use axum::{http::StatusCode, response::IntoResponse, Json};
+use broker::BrokerError;
 use investment_plans::{PlanApplicationError, PlanValidationError};
 use serde::Serialize;
 
@@ -89,6 +90,19 @@ impl From<PlanValidationError> for ApiError {
     /// Convert validation errors into the public bad-request envelope.
     fn from(_: PlanValidationError) -> Self {
         Self::BadRequest
+    }
+}
+
+impl From<BrokerError> for ApiError {
+    /// Convert broker-layer errors into safe API errors.
+    fn from(error: BrokerError) -> Self {
+        match error {
+            BrokerError::Validation(_)
+            | BrokerError::LiveTradingDisabled
+            | BrokerError::EnvironmentMismatch { .. }
+            | BrokerError::PaperTradingRequired { .. } => Self::BadRequest,
+            BrokerError::Unavailable => Self::ServiceUnavailable,
+        }
     }
 }
 
