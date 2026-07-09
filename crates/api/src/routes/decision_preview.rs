@@ -1,5 +1,7 @@
 //! Decision preview HTTP route.
 
+use std::time::Duration;
+
 use ai_client::Sentiment;
 use axum::{
     extract::{
@@ -22,9 +24,12 @@ use investment_plans::{
 use quant_engine::{FundamentalSignal, TrendRegime, TrendSignal};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use tokio::time::timeout;
 use uuid::Uuid;
 
 use crate::{ApiError, ApiState};
+
+const BROKER_SUBMIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Decision preview request DTO.
 #[derive(Debug, Deserialize)]
@@ -387,20 +392,23 @@ async fn maybe_submit_paper_order(
     decision: &DecisionSignal,
     paper_order: Option<PaperOrderRequest>,
 ) -> Result<Option<BrokerOrderAck>, ApiError> {
+    let request = paper_order
+        .map(|order| order.into_domain(&execution.symbol))
+        .transpose()?;
+
     if execution.status != ExecutionPreviewStatus::Due
         || matches!(decision.action, Action::Skip | Action::TacticalDelay)
     {
         return Ok(None);
     }
 
-    let Some(order) = paper_order else {
+    let Some(request) = request else {
         return Ok(None);
     };
-    let request = order.into_domain(&execution.symbol)?;
-    state
-        .broker()
-        .submit_order(request)
+
+    timeout(BROKER_SUBMIT_TIMEOUT, state.broker().submit_order(request))
         .await
+        .map_err(|_| ApiError::ServiceUnavailable)?
         .map(Some)
         .map_err(Into::into)
 }

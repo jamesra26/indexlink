@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### 2026-07-09 23:43 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：PR review fix。
+- 涉及文件：
+  - `crates/api/Cargo.toml`
+  - `crates/api/src/routes/decision_preview.rs`
+  - `crates/api/tests/decision_preview.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - Review fix：将 `paper_order` DTO 到 broker 领域请求的结构校验前置，避免 waiting 或 `TacticalDelay` 路径静默接受非法 market/limit payload。
+  - Review fix：在可替换 broker port 调用外层增加 5 秒超时，超时后返回安全的 `service_unavailable` API envelope。
+  - 新增回归测试，覆盖 waiting 与 tactical delay 路径中非法 paper order 仍返回 `bad_request`。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p indexlink-api --locked` 通过。
+  - `cargo clippy -p indexlink-api --all-targets --all-features -- -D warnings` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-09 23:10 UTC+10
 
 - 执行模型：GPT-5。

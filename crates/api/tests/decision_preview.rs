@@ -276,6 +276,10 @@ async fn decision_preview_maps_bad_input_to_safe_bad_request() {
     let broker = Arc::new(MockBroker::paper_only());
     let created = repository.create(create_input()).await.unwrap();
     let app = app(repository, broker);
+    let mut waiting_invalid_order = preview_payload(16, "neutral");
+    waiting_invalid_order["paper_order"]["limit_price"] = json!("10.00");
+    let mut tactical_delay_invalid_order = preview_payload(15, "overheated");
+    tactical_delay_invalid_order["paper_order"]["limit_price"] = json!("10.00");
 
     for (uri, body) in [
         (
@@ -330,6 +334,14 @@ async fn decision_preview_maps_bad_input_to_safe_bad_request() {
                 }
             })
             .to_string(),
+        ),
+        (
+            format!("/investment-plans/{}/decision-preview", created.id),
+            waiting_invalid_order.to_string(),
+        ),
+        (
+            format!("/investment-plans/{}/decision-preview", created.id),
+            tactical_delay_invalid_order.to_string(),
         ),
     ] {
         let response = app
