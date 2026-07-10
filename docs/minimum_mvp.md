@@ -100,6 +100,17 @@ MVP 接入策略：
 - 已支持 mock broker，用于虚拟账号 demo 前的本地闭环测试。
 - mock broker 默认拒绝 live orders，必须显式开启才接受 live-mode 请求。
 
+### Decision Preview API + MockBroker 串联
+
+- 已新增 `POST /investment-plans/:id/decision-preview`。
+- API 可接收执行日、双桶比例、fundamental signal、trend signal、可选 sentiment 和可选 paper order 请求。
+- 入站 DTO 会转换到领域类型，复用各层构造器和不变量校验，不让外部请求绕过领域边界。
+- API 内部会调用 investment plan 执行预览，判断本次是 `due`、`waiting` 还是 `inactive`。
+- API 内部会调用 `decision-engine` 合成 final score、multiplier 和 action。
+- due 且 action 可执行时，可以通过 broker port 向 `MockBroker` 提交 paper order。
+- waiting、inactive、`Skip` 和 `TacticalDelay` 不会触发 paper order。
+- 响应包含 execution preview、decision result、可选 broker ack 和演示用 summary。
+
 ### 70% 基本面量化
 
 - `quant-engine` 已有 fundamental 方向的实现和测试。
@@ -147,17 +158,16 @@ MVP 需要补到：
 - 错误响应不暴露 token、URL credential、serde 细节或 provider 内部错误。
 - 至少一次使用真实阿里云 key 的 smoke test。
 
-### Decision Preview API 尚未实现
+### Decision Preview API 仍需接真实上游
 
-当前已有 decision engine 纯函数，但还没有 API 将投资计划、执行预览、双桶拆分、broker paper order 和最终 summary 串成一个演示闭环。
+当前 decision preview API 已经能把手工传入的 fundamental、trend、sentiment、双桶配置和 `MockBroker` 串成后端闭环；但它还没有自动调用 Qwen sentiment endpoint，也还没有接真实 Futu/Moomoo OpenD transport。
 
-MVP 需要补到：
+MVP 还需要补到：
 
-- 新增 decision preview API。
-- 从 API DTO 接收或组装 investment plan snapshot、fundamental signal、trend signal、sentiment signal 和双桶配置。
-- 调用 `decision-engine` 合成 final score、multiplier 和 action。
-- 先用 `MockBroker` 完成 decision-to-paper-order 闭环。
-- 返回最终 summary 与 paper order ack。
+- 从后端 market sentiment API 获取真实 Qwen sentiment，而不是由调用方手工传入 sentiment。
+- 从后端或前端提供更稳定的 fundamental/trend signal 输入来源。
+- 将 mock paper order 切换为真实 OpenD paper gateway transport。
+- 将 summary 从当前演示级短句升级为更完整的 70/20/10 分层解释。
 
 ### Futu/Moomoo OpenD transport 尚未实现
 
@@ -206,11 +216,11 @@ MVP 需要补到：
 
 ### 最终总结 / 决策存证尚未实现
 
-演示不能只返回几个分数；需要一份人能看懂的最终 summary。
+演示不能只返回几个分数；需要一份人能看懂的最终 summary。当前 decision preview API 已返回演示级短 summary，但还需要升级为更完整的分层解释。
 
 MVP 需要补到：
 
-- 新增 decision preview API，返回最终演示结果。
+- 将当前 decision preview summary 扩展为完整最终演示结果。
 - 输出至少包含：
   - plan id / symbol / currency
   - execution status
@@ -293,46 +303,88 @@ Content-Type: application/json
 
 这不是最终 decision summary，只是最终 summary 会依赖的执行层输入之一。
 
+## 已具备的 Decision Preview + MockBroker 子流程
+
+Decision Preview API 覆盖第 8-14 步的本地后端闭环：合成 70/20/10、复用执行预览、输出双桶拆分、按安全条件提交 mock paper order，并返回 summary。
+
+示例请求：
+
+```http
+POST /investment-plans/:id/decision-preview
+Content-Type: application/json
+
+{
+  "day_of_month": 15,
+  "bucket_allocation": {
+    "core_ratio": "0.80",
+    "opportunity_ratio": "0.20"
+  },
+  "fundamental": {
+    "score": 0.10,
+    "cape_percentile": 0.10,
+    "erp_percentile": 0.90
+  },
+  "trend": {
+    "score": 0.50,
+    "ma_distance_percentile": 0.50,
+    "rsi_percentile": 0.50,
+    "vix_percentile": 0.50,
+    "regime": "neutral"
+  },
+  "sentiment": {
+    "score": 0.80
+  },
+  "paper_order": {
+    "idempotency_key": "decision-preview-demo-1",
+    "side": "buy",
+    "order_type": "market",
+    "quantity": "1.00"
+  }
+}
+```
+
+示例响应会包含：
+
+- `execution`：投资计划执行预览与双桶拆分。
+- `decision`：final score、multiplier、action 和权重降级状态。
+- `paper_order_ack`：只有 due 且 action 可执行时才出现。
+- `summary`：演示级最终摘要。
+
 ## 后续 PR 建议顺序
 
-1. Decision preview API + MockBroker 串联
-   - 组合 investment plan、fundamental、trend、sentiment、execution preview 和 bucket split。
-   - 先用 `MockBroker` 完成 decision-to-paper-order 闭环。
-   - 返回最终 summary 与 paper order ack。
-
-2. 阿里云 Qwen API 接入
+1. 阿里云 Qwen API 接入
    - server config 读取 DashScope 配置。
    - API state 注入 Qwen provider。
    - 新增 market sentiment endpoint。
    - 测试用 fake provider，演示用真实阿里云 key。
 
-3. Futu/Moomoo OpenD paper adapter
+2. Futu/Moomoo OpenD paper adapter
    - 已完成 broker port adapter 和安全闸门。
    - 下一步补真实 OpenD gateway transport。
    - 读取 server OpenD host/port 与 paper mode 配置。
 
-4. Broker paper execution API
-   - decision preview 之后可提交 paper order。
-   - 返回 broker order ack。
-   - 使用 idempotency key 防止重复提交。
+3. Decision Preview API 升级真实上游
+   - sentiment 改为接后端 Qwen 输出。
+   - paper order 改为接真实 OpenD paper gateway。
+   - summary 增加 fundamental/trend/sentiment 的分层解释。
 
-5. 演示级最小前端（Jame 负责）
+4. 演示级最小前端（Jame 负责）
    - 实现计划列表/创建/详情。
    - 实现 execution preview + bucket split 展示。
    - 实现 market sentiment 与 decision summary 展示。
    - 实现 paper order ack 展示。
 
-6. Demo smoke 文档
+5. Demo smoke 文档
    - 给出完整 curl 流程。
    - 给出前端点击演示流程。
    - 写明需要的环境变量。
    - 记录真实阿里云 key 和 Futu/Moomoo paper trading 的手动验证步骤。
 
-7. 可选：持久化 decision record
+6. 可选：持久化 decision record
    - 如果演示需要“历史决策存证”，再落 `decisions` 表。
    - 最小后端演示可以先不持久化，只返回 preview。
 
-8. 可选：受保护 live trading
+7. 可选：受保护 live trading
    - 只在 paper trading demo 稳定后考虑。
    - 需要显式配置、人工确认和更严格审计。
 
@@ -352,4 +404,4 @@ Content-Type: application/json
 - 能返回一段面向用户的最终 summary。
 - 能在演示级前端展示上述完整链路。
 
-当前状态更准确地说是：投资计划与双桶执行层接近可演示；70% fundamental 可复用；20% trend 已可复用；70/20/10 decision engine 已可复用；AI 库层可复用；broker port、mock broker 与 OpenD paper adapter 可复用；Decision Preview API、阿里云 API 接入、Futu/Moomoo OpenD transport、最终 summary 和演示级前端仍是 MVP 缺口。
+当前状态更准确地说是：投资计划与双桶执行层可演示；70% fundamental 可复用；20% trend 已可复用；70/20/10 decision engine 已可复用；broker port、mock broker、OpenD paper adapter 与 Decision Preview API + MockBroker 串联已可复用；AI 库层可复用但尚未接入 API；阿里云 API 接入、Futu/Moomoo OpenD transport、完整最终 summary 和演示级前端仍是 MVP 缺口。

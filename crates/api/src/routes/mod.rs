@@ -1,3 +1,4 @@
+mod decision_preview;
 mod health;
 mod investment_plans;
 mod ready;
@@ -10,5 +11,6 @@ pub(crate) fn router() -> Router<ApiState> {
     Router::new()
         .route("/health", get(health::health))
         .route("/ready", get(ready::ready))
+        .merge(decision_preview::router())
         .merge(investment_plans::router())
 }

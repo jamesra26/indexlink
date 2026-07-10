@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+### 2026-07-09 23:43 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：PR review fix。
+- 涉及文件：
+  - `crates/api/Cargo.toml`
+  - `crates/api/src/routes/decision_preview.rs`
+  - `crates/api/tests/decision_preview.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - Review fix：将 `paper_order` DTO 到 broker 领域请求的结构校验前置，避免 waiting 或 `TacticalDelay` 路径静默接受非法 market/limit payload。
+  - Review fix：在可替换 broker port 调用外层增加 5 秒超时，超时后返回安全的 `service_unavailable` API envelope。
+  - 新增回归测试，覆盖 waiting 与 tactical delay 路径中非法 paper order 仍返回 `bad_request`。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p indexlink-api --locked` 通过。
+  - `cargo clippy -p indexlink-api --all-targets --all-features -- -D warnings` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
+### 2026-07-09 23:10 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：Decision Preview API + MockBroker 串联。
+- 涉及文件：
+  - `Cargo.lock`
+  - `crates/api/Cargo.toml`
+  - `crates/api/src/error.rs`
+  - `crates/api/src/routes/mod.rs`
+  - `crates/api/src/routes/decision_preview.rs`
+  - `crates/api/src/state.rs`
+  - `crates/api/tests/decision_preview.rs`
+  - `docs/minimum_mvp.md`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `POST /investment-plans/:id/decision-preview`，将 investment plan、执行预览、双桶拆分、70/20/10 decision engine 与 broker paper order 串成后端演示闭环。
+  - API 入站仍使用 DTO 转换到领域类型，复用 `Percentile`、`PreviewInvestmentPlanExecution`、`BucketAllocationRatio` 与 broker order 构造器的不变量校验。
+  - `ApiState` 新增可替换 broker port，生产默认使用 `MockBroker::paper_only()`，测试可注入共享 mock broker 观察订单提交。
+  - decision preview 仅在计划 due 且 action 不是 `Skip` / `TacticalDelay` 时提交 paper order；waiting、inactive、跳过和战术延迟都不会触发 broker。
+  - 返回执行预览、decision score/multiplier/action、可选 paper order ack 和 demo summary。
+  - 新增 broker 错误到 API 安全错误响应的映射，避免向客户端暴露 adapter 内部细节。
+  - 新增 HTTP 路由测试，覆盖 due 下单、waiting 不下单、tactical delay 不下单，以及非法 UUID / 非法分位 / 非法 order payload 的统一 `bad_request` envelope。
+  - 更新 `docs/minimum_mvp.md`，标记 Decision Preview API + MockBroker 串联已完成，并将后续重点调整为阿里云 Qwen API 与真实 Futu/Moomoo OpenD transport。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo check -p indexlink-api --locked` 通过。
+  - `cargo test -p indexlink-api --locked` 通过。
+  - `cargo clippy -p indexlink-api --all-targets --all-features -- -D warnings` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-07 23:47 UTC+10
 
 - 执行模型：GPT-5。

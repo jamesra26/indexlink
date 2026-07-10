@@ -799,11 +799,16 @@ dependencies = [
 name = "indexlink-api"
 version = "0.1.0"
 dependencies = [
+ "ai-client",
  "async-trait",
  "axum",
+ "broker",
+ "core-domain",
+ "decision-engine",
  "http-body-util",
  "indexlink-storage",
  "investment-plans",
+ "quant-engine",
  "rust_decimal",
  "serde",
  "serde_json",

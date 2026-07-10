@@ -6,11 +6,17 @@ edition.workspace = true
 [dependencies]
 async-trait.workspace = true
 axum.workspace = true
+ai-client.workspace = true
+broker.workspace = true
+core-domain.workspace = true
+decision-engine.workspace = true
 investment-plans.workspace = true
 indexlink-storage.workspace = true
+quant-engine.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true
 uuid.workspace = true
