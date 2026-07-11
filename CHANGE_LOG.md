@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### 2026-07-12 00:15 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：Decision Record 持久化（Part 1：领域层）。
+- 涉及文件：
+  - `Cargo.toml`
+  - `Cargo.lock`
+  - `crates/decision-records/Cargo.toml`
+  - `crates/decision-records/src/lib.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `decision-records` crate，定义 `DecisionRecord`、`CreateDecisionRecord`、repository port 与应用服务。
+  - 使用 JSON snapshot 字段保存 execution、fundamental、trend、sentiment、decision 与 broker 输入输出，优先保留审计输入快照而不是只保存结论。
+  - 新增领域层单元测试，覆盖 create/list/get 服务路径和 repository not found 映射。
+- 接下来计划：
+  1. Part 2：新增 PostgreSQL `decision_records` migration 与 `PostgresDecisionRecordRepository`。
+  2. Part 3：新增 decision record 查询 API，并更新 `API_MANAGEMENT.md` / `docs/minimum_mvp.md`。
+  3. 后续阶段：接入阿里云 Qwen Market Sentiment API，并在真实执行链路中写入 decision record。
+  4. 后续阶段：实现 Futu/Moomoo OpenD paper gateway transport，继续默认 paper trading。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo check -p decision-records --locked` 通过。
+  - `cargo test -p decision-records --locked` 通过。
+  - `cargo clippy -p decision-records --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-10 11:53 UTC+10
 
 - 执行模型：GPT-5。
