@@ -2,7 +2,10 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use broker::{BrokerClient, MockBroker};
-use indexlink_storage::{PostgresInvestmentPlanRepository, Storage};
+use decision_records::DecisionRecordService;
+use indexlink_storage::{
+    PostgresDecisionRecordRepository, PostgresInvestmentPlanRepository, Storage,
+};
 use investment_plans::InvestmentPlanService;
 
 enum ReadinessBackend {
@@ -24,6 +27,7 @@ impl fmt::Debug for ReadinessBackend {
 pub struct ApiState {
     readiness: Arc<ReadinessBackend>,
     plans: InvestmentPlanService,
+    records: DecisionRecordService,
     broker: Arc<dyn BrokerClient>,
     version: Arc<str>,
 }
@@ -34,6 +38,7 @@ impl fmt::Debug for ApiState {
             .debug_struct("ApiState")
             .field("readiness", &self.readiness)
             .field("plans", &"InvestmentPlanService")
+            .field("records", &"DecisionRecordService")
             .field("broker", &"BrokerClient")
             .field("version", &self.version)
             .finish()
@@ -47,9 +52,13 @@ impl ApiState {
         let plans = InvestmentPlanService::new(Arc::new(PostgresInvestmentPlanRepository::new(
             storage.pool().clone(),
         )));
+        let records = DecisionRecordService::new(Arc::new(PostgresDecisionRecordRepository::new(
+            storage.pool().clone(),
+        )));
         Self {
             readiness: Arc::new(ReadinessBackend::Storage(storage)),
             plans,
+            records,
             broker: Arc::new(MockBroker::paper_only()),
             version: version.into(),
         }
@@ -75,9 +84,10 @@ impl ApiState {
         plans: InvestmentPlanService,
         version: impl Into<Arc<str>>,
     ) -> Self {
-        Self::with_readiness_plans_and_broker(
+        Self::with_readiness_plans_records_and_broker(
             readiness,
             plans,
+            DecisionRecordService::new(Arc::new(UnavailableDecisionRecords)),
             Arc::new(MockBroker::paper_only()),
             version,
         )
@@ -91,9 +101,28 @@ impl ApiState {
         broker: Arc<dyn BrokerClient>,
         version: impl Into<Arc<str>>,
     ) -> Self {
+        Self::with_readiness_plans_records_and_broker(
+            readiness,
+            plans,
+            DecisionRecordService::new(Arc::new(UnavailableDecisionRecords)),
+            broker,
+            version,
+        )
+    }
+
+    /// 使用可替换的 readiness、services 与 broker 构建状态。
+    #[must_use]
+    pub fn with_readiness_plans_records_and_broker(
+        readiness: Arc<dyn ReadinessCheck>,
+        plans: InvestmentPlanService,
+        records: DecisionRecordService,
+        broker: Arc<dyn BrokerClient>,
+        version: impl Into<Arc<str>>,
+    ) -> Self {
         Self {
             readiness: Arc::new(ReadinessBackend::Custom(readiness)),
             plans,
+            records,
             broker,
             version: version.into(),
         }
@@ -115,6 +144,10 @@ impl ApiState {
 
     pub(crate) fn plans(&self) -> &InvestmentPlanService {
         &self.plans
+    }
+
+    pub(crate) fn records(&self) -> &DecisionRecordService {
+        &self.records
     }
 
     pub(crate) fn broker(&self) -> &dyn BrokerClient {
@@ -167,6 +200,37 @@ impl investment_plans::InvestmentPlanRepository for UnavailableInvestmentPlans {
         _is_active: bool,
     ) -> Result<investment_plans::InvestmentPlan, investment_plans::PlanRepositoryError> {
         Err(investment_plans::PlanRepositoryError::Unavailable)
+    }
+}
+
+struct UnavailableDecisionRecords;
+
+#[async_trait]
+impl decision_records::DecisionRecordRepository for UnavailableDecisionRecords {
+    async fn create(
+        &self,
+        _input: decision_records::CreateDecisionRecord,
+    ) -> Result<decision_records::DecisionRecord, decision_records::DecisionRecordRepositoryError>
+    {
+        Err(decision_records::DecisionRecordRepositoryError::Unavailable)
+    }
+
+    async fn list_by_plan(
+        &self,
+        _plan_id: uuid::Uuid,
+    ) -> Result<
+        Vec<decision_records::DecisionRecord>,
+        decision_records::DecisionRecordRepositoryError,
+    > {
+        Err(decision_records::DecisionRecordRepositoryError::Unavailable)
+    }
+
+    async fn get(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<decision_records::DecisionRecord, decision_records::DecisionRecordRepositoryError>
+    {
+        Err(decision_records::DecisionRecordRepositoryError::Unavailable)
     }
 }
 

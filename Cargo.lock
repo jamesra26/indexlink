@@ -297,6 +297,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "decision-records"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -805,6 +818,7 @@ dependencies = [
  "broker",
  "core-domain",
  "decision-engine",
+ "decision-records",
  "http-body-util",
  "indexlink-storage",
  "investment-plans",
@@ -841,8 +855,10 @@ name = "indexlink-storage"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "decision-records",
  "investment-plans",
  "rust_decimal",
+ "serde_json",
  "sqlx",
  "thiserror",
  "time",

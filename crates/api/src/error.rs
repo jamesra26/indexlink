@@ -1,5 +1,6 @@
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use broker::BrokerError;
+use decision_records::DecisionRecordApplicationError;
 use investment_plans::{PlanApplicationError, PlanValidationError};
 use serde::Serialize;
 
@@ -102,6 +103,16 @@ impl From<BrokerError> for ApiError {
             | BrokerError::EnvironmentMismatch { .. }
             | BrokerError::PaperTradingRequired { .. } => Self::BadRequest,
             BrokerError::Unavailable => Self::ServiceUnavailable,
+        }
+    }
+}
+
+impl From<DecisionRecordApplicationError> for ApiError {
+    /// Convert decision-record application errors into safe API errors.
+    fn from(error: DecisionRecordApplicationError) -> Self {
+        match error {
+            DecisionRecordApplicationError::NotFound => Self::NotFound,
+            DecisionRecordApplicationError::Unavailable => Self::ServiceUnavailable,
         }
     }
 }

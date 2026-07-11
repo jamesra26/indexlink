@@ -10,6 +10,7 @@ ai-client.workspace = true
 broker.workspace = true
 core-domain.workspace = true
 decision-engine.workspace = true
+decision-records.workspace = true
 investment-plans.workspace = true
 indexlink-storage.workspace = true
 quant-engine.workspace = true

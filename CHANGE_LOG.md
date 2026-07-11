@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### 2026-07-12 00:05 UTC+10
+
+- 执行模型：GPT-5。
+- 变更类型：Decision Record 持久化。
+- 涉及文件：
+  - `Cargo.toml`
+  - `Cargo.lock`
+  - `crates/decision-records/Cargo.toml`
+  - `crates/decision-records/src/lib.rs`
+  - `crates/storage/Cargo.toml`
+  - `crates/storage/src/lib.rs`
+  - `crates/storage/src/decision_records.rs`
+  - `crates/api/Cargo.toml`
+  - `crates/api/src/error.rs`
+  - `crates/api/src/routes/mod.rs`
+  - `crates/api/src/routes/decision_records.rs`
+  - `crates/api/src/state.rs`
+  - `crates/api/tests/decision_records.rs`
+  - `migrations/20260711093000_create_decision_records.sql`
+  - `API_MANAGEMENT.md`
+  - `docs/minimum_mvp.md`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `decision-records` crate，定义 `DecisionRecord`、`CreateDecisionRecord`、repository port 与应用服务。
+  - 新增 PostgreSQL `decision_records` 表，用 JSONB 保存 execution、fundamental、trend、sentiment、decision 和 broker 快照，优先保留输入快照而不是只保存结论。
+  - 新增 `PostgresDecisionRecordRepository`，支持 create、按 plan 列表查询和按 record id 查询。
+  - API state 注入 `DecisionRecordService`，生产路径使用 Postgres adapter，测试路径可注入 fake repository。
+  - 新增查询 API：`GET /investment-plans/:id/decisions` 与 `GET /decisions/:id`。
+  - 暂不开放前端直接写入 decision record；后续由真实 Qwen / broker execution flow 在后端编排中写入。
+  - 更新 `API_MANAGEMENT.md` 和 `docs/minimum_mvp.md`，标记 decision record 查询底座已完成。
+- 接下来计划：
+  1. 接入阿里云 Qwen Market Sentiment API，测试使用 fake provider，真实 key 只做 manual smoke。
+  2. 将真实 Qwen sentiment、fundamental/trend snapshot、execution preview、decision output、broker request/ack 写入 decision record。
+  3. 实现 Futu/Moomoo OpenD paper gateway transport，继续默认 paper trading，live trading 保持显式关闭。
+  4. 升级 Decision Preview / Execution API，让真实 Qwen 与真实 OpenD paper gateway 进入同一条可审计链路。
+  5. 补 demo smoke 文档，串起前端、Qwen、decision record 和 paper order ack。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test -p decision-records --locked` 通过。
+  - `cargo test -p indexlink-storage --locked` 通过。
+  - `cargo test -p indexlink-api --locked` 通过。
+  - `cargo test --workspace --locked` 通过。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-10 11:53 UTC+10
 
 - 执行模型：GPT-5。

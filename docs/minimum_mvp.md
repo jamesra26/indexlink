@@ -111,6 +111,16 @@ MVP 接入策略：
 - waiting、inactive、`Skip` 和 `TacticalDelay` 不会触发 paper order。
 - 响应包含 execution preview、decision result、可选 broker ack 和演示用 summary。
 
+### Decision Record 持久化底座
+
+- 已新增 decision record 领域模型、应用服务和 repository port。
+- 已新增 PostgreSQL `decision_records` 表，用 JSONB 保存 execution、fundamental、trend、sentiment、decision 和 broker 快照。
+- 已新增 Postgres decision record repository adapter。
+- 已新增查询 API：
+  - `GET /investment-plans/:id/decisions`
+  - `GET /decisions/:id`
+- 当前只开放查询，不开放前端直接写入；后续由真实 Qwen / OpenD execution flow 在后端编排中写入 record。
+
 ### 70% 基本面量化
 
 - `quant-engine` 已有 fundamental 方向的实现和测试。
@@ -358,31 +368,33 @@ Content-Type: application/json
    - 新增 market sentiment endpoint。
    - 测试用 fake provider，演示用真实阿里云 key。
 
-2. Futu/Moomoo OpenD paper adapter
+2. Decision Record 写入编排
+   - 已有 `decision_records` 表和查询 API。
+   - 下一步需要在真实 Qwen / broker 执行链路中自动写入 record。
+   - record 必须保存输入快照，而不是只保存最终结论。
+
+3. Futu/Moomoo OpenD paper adapter
    - 已完成 broker port adapter 和安全闸门。
    - 下一步补真实 OpenD gateway transport。
    - 读取 server OpenD host/port 与 paper mode 配置。
 
-3. Decision Preview API 升级真实上游
+4. Decision Preview API 升级真实上游
    - sentiment 改为接后端 Qwen 输出。
    - paper order 改为接真实 OpenD paper gateway。
    - summary 增加 fundamental/trend/sentiment 的分层解释。
+   - 执行后写入 decision record。
 
-4. 演示级最小前端（Jame 负责）
+5. 演示级最小前端（Jame 负责）
    - 实现计划列表/创建/详情。
    - 实现 execution preview + bucket split 展示。
    - 实现 market sentiment 与 decision summary 展示。
    - 实现 paper order ack 展示。
 
-5. Demo smoke 文档
+6. Demo smoke 文档
    - 给出完整 curl 流程。
    - 给出前端点击演示流程。
    - 写明需要的环境变量。
    - 记录真实阿里云 key 和 Futu/Moomoo paper trading 的手动验证步骤。
-
-6. 可选：持久化 decision record
-   - 如果演示需要“历史决策存证”，再落 `decisions` 表。
-   - 最小后端演示可以先不持久化，只返回 preview。
 
 7. 可选：受保护 live trading
    - 只在 paper trading demo 稳定后考虑。
@@ -403,5 +415,6 @@ Content-Type: application/json
 - 能通过 Futu/Moomoo paper trading 或 mock broker 提交虚拟订单并返回 ack。
 - 能返回一段面向用户的最终 summary。
 - 能在演示级前端展示上述完整链路。
+- 能查询历史 decision records，展示可审计输入快照与输出结论。
 
-当前状态更准确地说是：投资计划与双桶执行层可演示；70% fundamental 可复用；20% trend 已可复用；70/20/10 decision engine 已可复用；broker port、mock broker、OpenD paper adapter 与 Decision Preview API + MockBroker 串联已可复用；AI 库层可复用但尚未接入 API；阿里云 API 接入、Futu/Moomoo OpenD transport、完整最终 summary 和演示级前端仍是 MVP 缺口。
+当前状态更准确地说是：投资计划与双桶执行层可演示；70% fundamental 可复用；20% trend 已可复用；70/20/10 decision engine 已可复用；broker port、mock broker、OpenD paper adapter、Decision Preview API + MockBroker 串联与 Decision Record 查询底座已可复用；AI 库层可复用但尚未接入 API；阿里云 API 接入、Futu/Moomoo OpenD transport、decision record 自动写入编排、完整最终 summary 和演示级前端仍是 MVP 缺口。
