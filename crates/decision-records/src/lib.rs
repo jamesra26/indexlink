@@ -532,4 +532,98 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn normalize_symbol_rejects_invalid_boundaries() {
+        assert_eq!(
+            normalize_symbol("".to_owned()),
+            Err(DecisionRecordValidationError::InvalidSymbol)
+        );
+        assert_eq!(
+            normalize_symbol("V".repeat(33)),
+            Err(DecisionRecordValidationError::InvalidSymbol)
+        );
+        assert_eq!(
+            normalize_symbol("åAPL".to_owned()),
+            Err(DecisionRecordValidationError::InvalidSymbol)
+        );
+        assert_eq!(
+            normalize_symbol("VO\nO".to_owned()),
+            Err(DecisionRecordValidationError::InvalidSymbol)
+        );
+        assert_eq!(normalize_symbol(" voo ".to_owned()), Ok("VOO".to_owned()));
+    }
+
+    #[test]
+    fn normalize_currency_rejects_invalid_boundaries() {
+        assert_eq!(
+            normalize_currency("US".to_owned()),
+            Err(DecisionRecordValidationError::InvalidCurrency)
+        );
+        assert_eq!(
+            normalize_currency("US1".to_owned()),
+            Err(DecisionRecordValidationError::InvalidCurrency)
+        );
+        assert_eq!(normalize_currency(" usd ".to_owned()), Ok("USD".to_owned()));
+    }
+
+    #[test]
+    fn normalize_summary_rejects_invalid_boundaries() {
+        assert_eq!(
+            normalize_summary("  ".to_owned()),
+            Err(DecisionRecordValidationError::InvalidSummary)
+        );
+        assert_eq!(
+            normalize_summary("x".repeat(MAX_SUMMARY_LEN + 1)),
+            Err(DecisionRecordValidationError::InvalidSummary)
+        );
+        assert_eq!(
+            normalize_summary(" useful summary ".to_owned()),
+            Ok("useful summary".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn service_rejects_all_null_snapshot_boundaries() {
+        type MutateInput = fn(&mut CreateDecisionRecord);
+        let cases: [(&str, MutateInput); 6] = [
+            (
+                "fundamental_snapshot",
+                |input: &mut CreateDecisionRecord| {
+                    input.fundamental_snapshot = Value::Null;
+                },
+            ),
+            ("trend_snapshot", |input: &mut CreateDecisionRecord| {
+                input.trend_snapshot = Value::Null;
+            }),
+            ("decision_snapshot", |input: &mut CreateDecisionRecord| {
+                input.decision_snapshot = Value::Null;
+            }),
+            ("sentiment_snapshot", |input: &mut CreateDecisionRecord| {
+                input.sentiment_snapshot = Some(Value::Null);
+            }),
+            (
+                "broker_order_request",
+                |input: &mut CreateDecisionRecord| {
+                    input.broker_order_request = Some(Value::Null);
+                },
+            ),
+            ("broker_order_ack", |input: &mut CreateDecisionRecord| {
+                input.broker_order_ack = Some(Value::Null);
+            }),
+        ];
+
+        for (field, mutate) in cases {
+            let service = DecisionRecordService::new(Arc::new(FakeRepository::default()));
+            let mut input = input(Uuid::from_u128(7));
+            mutate(&mut input);
+
+            assert_eq!(
+                service.create(input).await,
+                Err(DecisionRecordApplicationError::Validation(
+                    DecisionRecordValidationError::InvalidSnapshot { field }
+                ))
+            );
+        }
+    }
 }

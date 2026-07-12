@@ -18,6 +18,7 @@
   - 自查修正：新增 `DecisionExecutionStatus`，避免执行状态以任意字符串绕过领域边界。
   - 自查修正：新增 `CreateDecisionRecord::normalize()` 与 `DecisionRecordValidationError`，在 repository 前校验 symbol、currency、planned contribution、summary 和必需 JSON snapshot。
   - 自查修正：snapshot 字段 rustdoc 明确不得保存 API key、account id、OpenD 密码或其他 secrets。
+  - Review fix：补充 normalize 边界测试，覆盖 symbol、currency、summary、必需 snapshot 与可选 snapshot 的非法分支。
   - 新增领域层单元测试，覆盖 create/list/get 服务路径、repository not found 映射、创建输入规范化和非法输入拒绝。
 - 接下来计划：
   1. Part 2：新增 PostgreSQL `decision_records` migration 与 `PostgresDecisionRecordRepository`。
