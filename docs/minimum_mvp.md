@@ -380,9 +380,10 @@ Content-Type: application/json
    - 写明需要的环境变量。
    - 记录真实阿里云 key 和 Futu/Moomoo paper trading 的手动验证步骤。
 
-6. 可选：持久化 decision record
-   - 如果演示需要“历史决策存证”，再落 `decisions` 表。
-   - 最小后端演示可以先不持久化，只返回 preview。
+6. Decision Record 自动存证
+   - 已具备 `decision_records` 表、PostgreSQL storage adapter 和只读 history API。
+   - 后续在 Decision Preview 成功后，由服务端创建 audit record；不得由前端直接提交未经信任的快照。
+   - 记录必须优先保存 fundamental、trend、sentiment、execution 与 decision 的输入/输出快照；不得保存 Qwen key、OpenD 密码、account id 或 token。
 
 7. 可选：受保护 live trading
    - 只在 paper trading demo 稳定后考虑。
@@ -404,4 +405,4 @@ Content-Type: application/json
 - 能返回一段面向用户的最终 summary。
 - 能在演示级前端展示上述完整链路。
 
-当前状态更准确地说是：投资计划与双桶执行层可演示；70% fundamental 可复用；20% trend 已可复用；70/20/10 decision engine 已可复用；broker port、mock broker、OpenD paper adapter 与 Decision Preview API + MockBroker 串联已可复用；AI 库层可复用但尚未接入 API；阿里云 API 接入、Futu/Moomoo OpenD transport、完整最终 summary 和演示级前端仍是 MVP 缺口。
+当前状态更准确地说是：投资计划与双桶执行层可演示；70% fundamental 可复用；20% trend 已可复用；70/20/10 decision engine 已可复用；broker port、mock broker、OpenD paper adapter 与 Decision Preview API + MockBroker 串联已可复用；decision record 的领域层、本机 PostgreSQL storage 与只读 history API 已具备，但 Decision Preview 尚未自动写入 record；AI 库层可复用但尚未接入 API；阿里云 API 接入、Futu/Moomoo OpenD transport、完整最终 summary 和演示级前端仍是 MVP 缺口。

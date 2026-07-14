@@ -1,5 +1,6 @@
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use broker::BrokerError;
+use decision_records::DecisionRecordApplicationError;
 use investment_plans::{PlanApplicationError, PlanValidationError};
 use serde::Serialize;
 
@@ -64,7 +65,7 @@ impl IntoResponse for ApiError {
                 ErrorEnvelope {
                     error: ErrorBody {
                         code: "service_unavailable",
-                        message: "database is unavailable",
+                        message: "service is unavailable",
                         request_id: None,
                     },
                 },
@@ -90,6 +91,17 @@ impl From<PlanValidationError> for ApiError {
     /// Convert validation errors into the public bad-request envelope.
     fn from(_: PlanValidationError) -> Self {
         Self::BadRequest
+    }
+}
+
+impl From<DecisionRecordApplicationError> for ApiError {
+    /// Convert decision-record application errors into safe API errors.
+    fn from(error: DecisionRecordApplicationError) -> Self {
+        match error {
+            DecisionRecordApplicationError::Validation(_) => Self::BadRequest,
+            DecisionRecordApplicationError::NotFound => Self::NotFound,
+            DecisionRecordApplicationError::Unavailable => Self::ServiceUnavailable,
+        }
     }
 }
 
@@ -133,7 +145,7 @@ mod tests {
             json!({
                 "error": {
                     "code": "service_unavailable",
-                    "message": "database is unavailable"
+                    "message": "service is unavailable"
                 }
             })
         );
@@ -145,7 +157,7 @@ mod tests {
         let body = ErrorEnvelope {
             error: ErrorBody {
                 code: "service_unavailable",
-                message: "database is unavailable",
+                message: "service is unavailable",
                 request_id: None,
             },
         };
@@ -155,7 +167,7 @@ mod tests {
             json!({
                 "error": {
                     "code": "service_unavailable",
-                    "message": "database is unavailable"
+                    "message": "service is unavailable"
                 }
             })
         );
@@ -166,7 +178,7 @@ mod tests {
         let body = ErrorEnvelope {
             error: ErrorBody {
                 code: "service_unavailable",
-                message: "database is unavailable",
+                message: "service is unavailable",
                 request_id: Some("request-123".to_owned()),
             },
         };

@@ -235,6 +235,29 @@ investment plan
 - 即使不会提交订单，只要请求中带了非法 `paper_order`，也会返回 `400 bad_request`。
 - broker port 调用有 5 秒超时保护。
 
+### Decision Record / History
+
+#### `GET /investment-plans/:id/decisions`
+
+列出一个已存在投资计划的历史 decision record，按 `created_at DESC, id DESC` 返回。
+
+- `limit` 可选，默认 `50`，有效范围为 `1..=200`。
+- 非法 plan UUID、非法 query 参数或越界 `limit` 返回 `400 bad_request`。
+- 不存在的 investment plan 返回 `404 not_found`。
+- 当前返回已经持久化的审计快照；Decision Preview 自动创建 record 仍属于后续工作，因此新环境可能返回空数组。
+
+请求示例：
+
+```text
+GET /investment-plans/00000000-0000-0000-0000-000000000001/decisions?limit=20
+```
+
+响应是 decision record 数组。每条记录包含 execution、fundamental、trend、可选 sentiment、decision 与可选 broker 的快照，以及最终 summary 和创建时间。
+
+#### `GET /decisions/:id`
+
+按 ID 查询单条 decision record。不存在时返回 `404 not_found`。
+
 ## 待补充 API
 
 ### 阿里云 Qwen Market Sentiment API
@@ -322,28 +345,17 @@ investment plan
 - 可选择使用真实 OpenD paper gateway 替代 MockBroker。
 - 返回更完整的分层解释 summary。
 
-### Decision Record / History API
+### Decision Record 自动存证
 
-当前没有持久化 decision record。
+Decision record 的 PostgreSQL storage adapter 与只读 history API 已具备；当前尚未在 `POST /investment-plans/:id/decision-preview` 成功后自动写入 record。
 
-建议新增：
+后续需要在受控的服务端编排层创建 record，并保存：
 
-#### `GET /investment-plans/:id/decisions`
+- fundamental、trend、sentiment 输入快照。
+- execution preview、bucket split、decision 输出与 summary。
+- 可选 broker request / ack。
 
-列出某个计划的历史决策。
-
-#### `GET /decisions/:id`
-
-查看单条 decision record。
-
-#### `POST /investment-plans/:id/decisions`
-
-在需要审计存证时保存一次 decision preview 输入快照和输出结果。
-
-存储要求：
-
-- 优先保存输入快照，而不是只保存结论。
-- 包含 fundamental、trend、sentiment、execution preview、bucket split、broker ack 和 summary。
+输入快照不得包含 Qwen API key、OpenD 密码、account id、token 或其他 secret。
 
 ## 前端当前建议对接顺序
 
@@ -354,6 +366,8 @@ investment plan
 5. `PATCH /investment-plans/:id`
 6. `POST /investment-plans/:id/execution-preview`
 7. `POST /investment-plans/:id/decision-preview`
+8. `GET /investment-plans/:id/decisions`
+9. `GET /decisions/:id`
 
 ## 当前 MVP 缺口优先级
 
@@ -361,4 +375,4 @@ investment plan
 2. Fundamental/Trend signal API，或明确由前端 demo 手工输入 signal。
 3. Futu/Moomoo OpenD 真实 paper trading transport。
 4. Decision Preview 接真实 Qwen 与真实 OpenD paper gateway。
-5. Decision Record / History 持久化。
+5. Decision Preview 自动写入 Decision Record。

@@ -2,7 +2,13 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use broker::{BrokerClient, MockBroker};
-use indexlink_storage::{PostgresInvestmentPlanRepository, Storage};
+use decision_records::{
+    DecisionRecord, DecisionRecordListQuery, DecisionRecordRepository,
+    DecisionRecordRepositoryError, DecisionRecordService,
+};
+use indexlink_storage::{
+    PostgresDecisionRecordRepository, PostgresInvestmentPlanRepository, Storage,
+};
 use investment_plans::InvestmentPlanService;
 
 enum ReadinessBackend {
@@ -24,6 +30,7 @@ impl fmt::Debug for ReadinessBackend {
 pub struct ApiState {
     readiness: Arc<ReadinessBackend>,
     plans: InvestmentPlanService,
+    decision_records: DecisionRecordService,
     broker: Arc<dyn BrokerClient>,
     version: Arc<str>,
 }
@@ -34,6 +41,7 @@ impl fmt::Debug for ApiState {
             .debug_struct("ApiState")
             .field("readiness", &self.readiness)
             .field("plans", &"InvestmentPlanService")
+            .field("decision_records", &"DecisionRecordService")
             .field("broker", &"BrokerClient")
             .field("version", &self.version)
             .finish()
@@ -47,9 +55,13 @@ impl ApiState {
         let plans = InvestmentPlanService::new(Arc::new(PostgresInvestmentPlanRepository::new(
             storage.pool().clone(),
         )));
+        let decision_records = DecisionRecordService::new(Arc::new(
+            PostgresDecisionRecordRepository::new(storage.pool().clone()),
+        ));
         Self {
             readiness: Arc::new(ReadinessBackend::Storage(storage)),
             plans,
+            decision_records,
             broker: Arc::new(MockBroker::paper_only()),
             version: version.into(),
         }
@@ -91,14 +103,34 @@ impl ApiState {
         broker: Arc<dyn BrokerClient>,
         version: impl Into<Arc<str>>,
     ) -> Self {
+        Self::with_readiness_plans_broker_and_decision_records(
+            readiness,
+            plans,
+            broker,
+            DecisionRecordService::new(Arc::new(UnavailableDecisionRecords)),
+            version,
+        )
+    }
+
+    /// 使用可替换的 readiness、计划、broker 与 decision record 服务构建状态。
+    #[must_use]
+    pub fn with_readiness_plans_broker_and_decision_records(
+        readiness: Arc<dyn ReadinessCheck>,
+        plans: InvestmentPlanService,
+        broker: Arc<dyn BrokerClient>,
+        decision_records: DecisionRecordService,
+        version: impl Into<Arc<str>>,
+    ) -> Self {
         Self {
             readiness: Arc::new(ReadinessBackend::Custom(readiness)),
             plans,
+            decision_records,
             broker,
             version: version.into(),
         }
     }
 
+    /// 检查 API 依赖是否可用。
     pub(crate) async fn check_readiness(&self) -> Result<(), ReadinessError> {
         match self.readiness.as_ref() {
             ReadinessBackend::Storage(storage) => storage
@@ -109,16 +141,24 @@ impl ApiState {
         }
     }
 
+    /// 返回运行中的服务版本。
     pub(crate) fn version(&self) -> &str {
         self.version.as_ref()
     }
 
+    /// 返回 investment plan 应用服务。
     pub(crate) fn plans(&self) -> &InvestmentPlanService {
         &self.plans
     }
 
+    /// 返回受配置保护的 broker port。
     pub(crate) fn broker(&self) -> &dyn BrokerClient {
         self.broker.as_ref()
+    }
+
+    /// 返回 decision record 应用服务。
+    pub(crate) fn decision_records(&self) -> &DecisionRecordService {
+        &self.decision_records
     }
 }
 
@@ -129,7 +169,11 @@ pub trait ReadinessCheck: Send + Sync {
     async fn check(&self) -> Result<(), ReadinessError>;
 }
 
+/// 未配置计划存储时使用的显式不可用 repository。
 struct UnavailableInvestmentPlans;
+
+/// Fallback repository used when decision records are not configured in isolated tests.
+struct UnavailableDecisionRecords;
 
 #[async_trait]
 impl investment_plans::InvestmentPlanRepository for UnavailableInvestmentPlans {
@@ -167,6 +211,31 @@ impl investment_plans::InvestmentPlanRepository for UnavailableInvestmentPlans {
         _is_active: bool,
     ) -> Result<investment_plans::InvestmentPlan, investment_plans::PlanRepositoryError> {
         Err(investment_plans::PlanRepositoryError::Unavailable)
+    }
+}
+
+#[async_trait]
+impl DecisionRecordRepository for UnavailableDecisionRecords {
+    /// Reject creates because no decision-record backend is configured.
+    async fn create(
+        &self,
+        _input: decision_records::CreateDecisionRecord,
+    ) -> Result<DecisionRecord, DecisionRecordRepositoryError> {
+        Err(DecisionRecordRepositoryError::Unavailable)
+    }
+
+    /// Reject list queries because no decision-record backend is configured.
+    async fn list_by_plan(
+        &self,
+        _plan_id: uuid::Uuid,
+        _query: DecisionRecordListQuery,
+    ) -> Result<Vec<DecisionRecord>, DecisionRecordRepositoryError> {
+        Err(DecisionRecordRepositoryError::Unavailable)
+    }
+
+    /// Reject record lookups because no decision-record backend is configured.
+    async fn get(&self, _id: uuid::Uuid) -> Result<DecisionRecord, DecisionRecordRepositoryError> {
+        Err(DecisionRecordRepositoryError::Unavailable)
     }
 }
 

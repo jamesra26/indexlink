@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+### 2026-07-15 00:36 AEST
+
+- 执行模型：GPT-5。
+- 变更类型：Decision Record 持久化（Part 3：History Query API）。
+- 涉及文件：
+  - `Cargo.toml`
+  - `Cargo.lock`
+  - `crates/decision-records/src/lib.rs`
+  - `crates/api/Cargo.toml`
+  - `crates/api/src/error.rs`
+  - `crates/api/src/state.rs`
+  - `crates/api/src/routes/mod.rs`
+  - `crates/api/src/routes/decision_records.rs`
+  - `crates/api/tests/decision_records.rs`
+  - `crates/api/tests/health.rs`
+  - `API_MANAGEMENT.md`
+  - `docs/minimum_mvp.md`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `GET /investment-plans/:id/decisions?limit=` 与 `GET /decisions/:id`，分别查询已存在计划的最新 decision record 列表和单条审计记录。
+  - history list 默认返回 50 条、最大 200 条；非法 UUID、query 参数或 limit 统一映射为安全的 `bad_request`，不存在计划或记录映射为 `not_found`。
+  - 生产 `ApiState` 注入现有 `PostgresDecisionRecordRepository`；隔离测试状态使用显式 unavailable repository，避免意外访问真实数据库。
+  - Decision record 的 `created_at` JSON 序列化改为 RFC 3339 字符串，避免将 `OffsetDateTime` 内部数组暴露给前端。
+  - 将 `service_unavailable` 文案改为中性 `service is unavailable`，准确覆盖数据库、broker 与 decision record 后端不可用。
+  - 更新 API 管理与 MVP 文档：明确只读 history API 已可用，但 Decision Preview 自动写入审计记录仍留待后续独立 PR。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p indexlink-api --locked` 通过（28 tests）。
+  - `cargo test -p decision-records --locked` 通过（10 tests）。
+  - `cargo test -p core-domain --locked` 通过（13 tests）。
+  - `cargo clippy -p indexlink-api --all-targets --all-features -- -D warnings` 通过。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo test --workspace --locked` 通过；2 个依赖真实网络/API key 的测试按项目约定 ignored。
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings` 通过。
+
 ### 2026-07-13 23:56 UTC+10
 
 - 执行模型：GPT-5。
