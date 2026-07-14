@@ -157,7 +157,7 @@ async fn ready_hides_internal_error_when_database_is_unavailable() {
         json!({
             "error": {
                 "code": "service_unavailable",
-                "message": "database is unavailable"
+                "message": "service is unavailable"
             }
         })
     );

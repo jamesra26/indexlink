@@ -819,6 +819,7 @@ dependencies = [
  "broker",
  "core-domain",
  "decision-engine",
+ "decision-records",
  "http-body-util",
  "indexlink-storage",
  "investment-plans",

@@ -91,6 +91,7 @@ pub struct DecisionRecord {
     /// User-facing summary generated for this decision.
     pub summary: String,
     /// Creation time.
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 
