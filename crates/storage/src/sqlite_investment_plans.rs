@@ -32,12 +32,19 @@ const UPDATE_PLAN_SQL: &str = "UPDATE investment_plans SET \
     schedule_day = COALESCE(?4, schedule_day), \
     max_single_execution = COALESCE(?5, max_single_execution), \
     is_active = COALESCE(?6, is_active), \
-    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+    updated_at = MAX( \
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+        strftime('%Y-%m-%dT%H:%M:%fZ', updated_at, '+0.001 seconds') \
+    ) \
     WHERE id = ?1 \
     RETURNING id, name, symbol, base_contribution, currency, schedule_kind, schedule_day, \
     max_single_execution, is_active, created_at, updated_at";
 const SET_ACTIVE_SQL: &str = "UPDATE investment_plans SET \
-    is_active = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+    is_active = ?2, \
+    updated_at = MAX( \
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+        strftime('%Y-%m-%dT%H:%M:%fZ', updated_at, '+0.001 seconds') \
+    ) \
     WHERE id = ?1 \
     RETURNING id, name, symbol, base_contribution, currency, schedule_kind, schedule_day, \
     max_single_execution, is_active, created_at, updated_at";
@@ -364,7 +371,7 @@ mod tests {
         assert!(!updated.is_active);
     }
 
-    /// 验证 SQLite adapter 持久化启停状态并拒绝超出 schema 精度的金额。
+    /// 验证 SQLite adapter 持久化启停状态并正确处理金额精度边界。
     #[tokio::test]
     async fn toggles_activity_and_rejects_unrepresentable_amounts() {
         let repository = repository().await;
@@ -372,6 +379,22 @@ mod tests {
 
         let inactive = repository.set_active(created.id, false).await.unwrap();
         assert!(!inactive.is_active);
+        let trailing_zero_precision = repository
+            .create(CreateInvestmentPlan {
+                base_contribution: amount("1.000000000"),
+                max_single_execution: amount("2.000000000"),
+                ..input()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            trailing_zero_precision.base_contribution,
+            amount("1.00000000")
+        );
+        assert_eq!(
+            trailing_zero_precision.max_single_execution,
+            amount("2.00000000")
+        );
         assert_eq!(
             repository
                 .create(CreateInvestmentPlan {
@@ -396,7 +419,32 @@ mod tests {
         );
         assert_eq!(encode_amount(Decimal::ZERO), None);
         assert_eq!(encode_amount(amount("-1.00")), None);
+        assert_eq!(
+            encode_amount(amount("1.000000000")).as_deref(),
+            Some("000000000001.00000000")
+        );
+        assert_eq!(encode_amount(amount("1.000000001")), None);
         assert_eq!(encode_amount(amount("1000000000000.00")), None);
+    }
+
+    /// 验证快速更新时仍保证 UTC 更新时间严格递增。
+    #[tokio::test]
+    async fn updates_advance_timestamp_even_when_clock_does_not() {
+        let repository = repository().await;
+        let created = repository.create(input()).await.unwrap();
+        let future_timestamp = "2099-01-01T00:00:00.000Z";
+        sqlx::query("UPDATE investment_plans SET updated_at = ?1 WHERE id = ?2")
+            .bind(future_timestamp)
+            .bind(created.id.to_string())
+            .execute(&repository.pool)
+            .await
+            .expect("test timestamp override must succeed");
+        let future_timestamp =
+            OffsetDateTime::parse(future_timestamp, &Rfc3339).expect("test timestamp must parse");
+
+        let updated = repository.set_active(created.id, false).await.unwrap();
+
+        assert!(updated.updated_at > future_timestamp);
     }
 
     /// 验证 SQLite 错误和损坏金额快照映射为安全 repository 错误。
@@ -429,6 +477,7 @@ mod tests {
         ] {
             assert!(!query.contains('$'));
         }
-        assert!(UPDATE_PLAN_SQL.contains("strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"));
+        assert!(UPDATE_PLAN_SQL.contains("MAX("));
+        assert!(SET_ACTIVE_SQL.contains("+0.001 seconds"));
     }
 }

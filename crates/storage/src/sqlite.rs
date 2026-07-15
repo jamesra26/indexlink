@@ -17,12 +17,15 @@ const SQLITE_AMOUNT_SCALE: u32 = 8;
 
 /// 将正 Decimal 编码为 SQLite schema 所需的固定宽度文本。
 pub(crate) fn encode_amount(value: Decimal) -> Option<String> {
-    if value <= Decimal::ZERO || value.scale() > SQLITE_AMOUNT_SCALE {
+    if value <= Decimal::ZERO {
         return None;
     }
 
     let mut normalized = value;
     normalized.rescale(SQLITE_AMOUNT_SCALE);
+    if normalized != value {
+        return None;
+    }
     let rendered = normalized.to_string();
     let (integer, fractional) = rendered.split_once('.')?;
     if integer.len() > SQLITE_AMOUNT_INTEGER_DIGITS

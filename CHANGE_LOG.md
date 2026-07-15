@@ -17,10 +17,11 @@
   - 新增 `SqliteInvestmentPlanRepository`，实现计划的 create、list、get、原子 update 与 set_active。
   - 金额在 SQLite 边界使用固定 12 位整数 + 8 位小数文本编码；不满足原 PostgreSQL `NUMERIC(20, 8)` 范围的值不会写入。
   - update 使用 `BEGIN IMMEDIATE` 获取 SQLite 写锁，在同一事务中读取、合并、校验并更新最终金额，避免并发读改写窗口。
-  - `updated_at` 始终由 SQLite 写为 UTC RFC 3339 `Z` 格式，读取端解析并拒绝损坏的时间或金额快照。
+  - 金额编码会归一化仅含尾随零的额外小数位；只有归一化后会改变数值的精度溢出才拒绝写入。
+  - `updated_at` 始终由 SQLite 写为 UTC RFC 3339 `Z` 格式，并通过当前时间与前值加 1ms 的较大值保证严格递增；读取端解析并拒绝损坏的时间或金额快照。
 - 验证：
   - `cargo fmt --all -- --check` 通过。
-  - `cargo test -p indexlink-storage --locked` 通过（23 tests）。
+  - `cargo test -p indexlink-storage --locked` 通过（24 tests）。
   - `cargo test -p investment-plans --locked` 通过（31 tests）。
   - `cargo test -p core-domain --locked` 通过（13 tests）。
   - `cargo check --workspace --locked` 通过。
