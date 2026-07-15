@@ -1,12 +1,13 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-//! PostgreSQL 连接与 repository adapter 基础设施。
+//! SQLx 连接、migration 与 repository adapter 基础设施。
 //!
 //! 此 crate 负责连接池的建立、存活检查，以及面向领域 crate 的 outbound adapter。
 
 mod decision_records;
 mod investment_plans;
+mod sqlite;
 
 use std::{str::FromStr, time::Duration};
 
@@ -16,6 +17,8 @@ use sqlx::{postgres::PgPoolOptions, PgPool};
 pub use decision_records::PostgresDecisionRecordRepository;
 /// Investment Plan repository 的 PostgreSQL adapter。
 pub use investment_plans::PostgresInvestmentPlanRepository;
+/// SQLite 本地存储连接与 migration runner。
+pub use sqlite::SqliteStorage;
 
 const DEFAULT_MAX_CONNECTIONS: u32 = 10;
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -128,6 +131,9 @@ pub enum StorageError {
     /// 数据库存活检查失败。
     #[error("database ping failed")]
     Ping(#[source] sqlx::Error),
+    /// 数据库 schema migration 执行失败。
+    #[error("failed to apply database migrations")]
+    Migration(#[source] sqlx::migrate::MigrateError),
 }
 
 #[cfg(test)]
@@ -228,6 +234,10 @@ mod tests {
             (
                 StorageError::Ping(sqlx::Error::PoolClosed),
                 "database ping failed",
+            ),
+            (
+                StorageError::Migration(sqlx::migrate::MigrateError::VersionMismatch(1)),
+                "failed to apply database migrations",
             ),
         ];
 
