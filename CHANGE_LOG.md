@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### 2026-07-15 22:44 AEST
+
+- 执行模型：GPT-5。
+- 变更类型：SQLite decision record 审查修正 / 演示 MVP 缺口审计。
+- 涉及文件：
+  - `crates/storage/src/sqlite.rs`
+  - `crates/storage/src/sqlite_decision_records.rs`
+  - `migrations/sqlite/20260715012000_reject_null_decision_record_snapshots.sql`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 修正 JSON `null` 绕过问题：SQLite adapter 的读取端现在会拒绝 `null` 快照并安全映射为 repository unavailable；可选快照若以 JSON `null` 而非 SQL `NULL` 存储，也同样不会进入领域模型。
+  - 新增 SQLite migration，以 insert/update trigger 阻止任一必填 decision record snapshot（execution、fundamental、trend、decision）被直接写入 JSON `null`；既有损坏行不会被静默修复，而会在读取时被拒绝，避免伪造有效审计记录。
+  - 全项目演示 MVP 审计结论：本地 SQLite、计划管理、双桶执行预览、70/20/10 纯函数决策、MockBroker 串联和只读 decision history 已可用；但 `apps/web` 当前仍是 Vite 模板，尚未实现演示界面。
+  - 演示 MVP 的阻塞项依优先级为：
+    1. 将 DashScope/Qwen client 接入 server config、API state 与真实 market sentiment route，并以真实 key smoke test。
+    2. 实现 Futu/Moomoo OpenD 的真实 TCP/SDK gateway transport，注入 server，并以 paper/virtual account 提交订单和获取 ack。
+    3. 将 Decision Preview 升级为受控服务端编排：接入真实 Qwen、确定 fundamental/trend 的演示输入来源、生成分层 summary，并在成功结果后自动写入本地 decision record。
+    4. 由前端负责方把当前 Vite 模板替换为计划、信号、决策、双桶、paper order 与 history 的演示闭环。
+    5. 补全真实凭据的端到端 smoke 文档；Docker Compose 的 SQLite named volume 写权限仍需在有 Docker 的环境实测并修正（当前镜像以内置目录 chown，挂载 volume 后权限可能变化）。
+  - 自动 Scheduler、成交回报状态机、多用户和 live trading 均不属于本次“演示可用”最小 MVP 的阻塞项。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p indexlink-storage --locked` 通过（30 tests，覆盖 adapter 读取拒绝 JSON `null`、migration 阻止 insert/update 直接写入 JSON `null`）。
+  - `cargo test -p core-domain --locked` 通过（13 tests）。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo clippy -p indexlink-storage --all-targets --all-features --locked -- -D warnings` 通过。
+
 ### 2026-07-15 22:30 AEST
 
 - 执行模型：GPT-5。

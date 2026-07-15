@@ -188,9 +188,9 @@ mod tests {
         assert!(matches!(error, StorageError::InvalidConfiguration(_)));
     }
 
-    /// 验证 SQLite schema 拒绝非规范金额、错误金额关系和非 UTC 时间文本。
+    /// 验证 SQLite schema 拒绝非规范金额、错误金额关系、非 UTC 时间和空必填快照。
     #[tokio::test]
-    async fn schema_enforces_amount_and_timestamp_invariants() {
+    async fn schema_enforces_amount_timestamp_and_snapshot_invariants() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(
@@ -232,5 +232,39 @@ mod tests {
         .execute(storage.pool())
         .await;
         assert!(invalid_timestamp.is_err());
+
+        sqlx::query(
+            "INSERT INTO investment_plans \
+             (id, name, symbol, base_contribution, currency, schedule_day, max_single_execution) \
+             VALUES ('plan-4', 'Core plan', 'VOO', '000000001000.00000000', 'USD', 15, '000000001000.00000000')",
+        )
+        .execute(storage.pool())
+        .await
+        .expect("valid decision-record parent plan must persist");
+        let null_required_snapshot = sqlx::query(
+            "INSERT INTO decision_records \
+             (id, plan_id, symbol, currency, execution_status, execution_snapshot, \
+              fundamental_snapshot, trend_snapshot, decision_snapshot, summary) \
+             VALUES ('record-1', 'plan-4', 'VOO', 'USD', 'due', 'null', '{}', '{}', '{}', 'summary')",
+        )
+        .execute(storage.pool())
+        .await;
+        assert!(null_required_snapshot.is_err());
+
+        sqlx::query(
+            "INSERT INTO decision_records \
+             (id, plan_id, symbol, currency, execution_status, execution_snapshot, \
+              fundamental_snapshot, trend_snapshot, decision_snapshot, summary) \
+             VALUES ('record-2', 'plan-4', 'VOO', 'USD', 'due', '{}', '{}', '{}', '{}', 'summary')",
+        )
+        .execute(storage.pool())
+        .await
+        .expect("valid decision record must persist");
+        let null_required_snapshot_update = sqlx::query(
+            "UPDATE decision_records SET trend_snapshot = 'null' WHERE id = 'record-2'",
+        )
+        .execute(storage.pool())
+        .await;
+        assert!(null_required_snapshot_update.is_err());
     }
 }

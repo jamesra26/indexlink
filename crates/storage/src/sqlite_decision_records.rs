@@ -192,7 +192,13 @@ fn parse_timestamp(value: String) -> Result<OffsetDateTime, DecisionRecordReposi
 
 /// 解析必填 JSON 快照。
 fn parse_json(value: String) -> Result<Value, DecisionRecordRepositoryError> {
-    serde_json::from_str(&value).map_err(|_| DecisionRecordRepositoryError::Unavailable)
+    let snapshot = serde_json::from_str::<Value>(&value)
+        .map_err(|_| DecisionRecordRepositoryError::Unavailable)?;
+    if snapshot.is_null() {
+        Err(DecisionRecordRepositoryError::Unavailable)
+    } else {
+        Ok(snapshot)
+    }
 }
 
 /// 解析可选 JSON 快照。
@@ -389,6 +395,10 @@ mod tests {
         );
         assert_eq!(
             parse_json("not-json".to_owned()),
+            Err(DecisionRecordRepositoryError::Unavailable)
+        );
+        assert_eq!(
+            parse_json("null".to_owned()),
             Err(DecisionRecordRepositoryError::Unavailable)
         );
         assert_eq!(
