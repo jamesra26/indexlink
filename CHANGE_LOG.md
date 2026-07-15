@@ -2,6 +2,92 @@
 
 ## Unreleased
 
+### 2026-07-15 23:01 AEST
+
+- 执行模型：GPT-5。
+- 变更类型：SQLite runtime 审查修正。
+- 涉及文件：
+  - `Cargo.lock`
+  - `apps/server/src/config.rs`
+  - `crates/storage/Cargo.toml`
+  - `crates/storage/src/sqlite_decision_records.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 配置层现在只接受非空 `sqlite:` `DATABASE_URL`，会在启动连接前明确拒绝遗留 `postgres://` URL。
+  - 提炼 SQLite row 列读取助手，统一 `try_get` 的安全错误映射，保留 UUID、金额、时间和 JSON 的原有解析语义。
+  - storage crate 复用 workspace `tracing` 依赖；decision record SQLite adapter 在折叠非 `RowNotFound` SQLx 错误前记录内部 warning，HTTP/领域层仍只得到安全的 `Unavailable`。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p indexlink-storage --offline` 通过（30 tests）。
+  - `cargo test -p indexlink-server --offline` 通过（15 tests）。
+  - `cargo test -p indexlink-api --offline` 通过（28 tests）。
+  - `cargo test -p core-domain --offline` 通过（13 tests）。
+  - `cargo check --workspace --offline` 通过。
+  - `cargo clippy -p indexlink-storage -p indexlink-api -p indexlink-server --all-targets --all-features --offline -- -D warnings` 通过。
+
+### 2026-07-15 22:44 AEST
+
+- 执行模型：GPT-5。
+- 变更类型：SQLite decision record 审查修正 / 演示 MVP 缺口审计。
+- 涉及文件：
+  - `crates/storage/src/sqlite.rs`
+  - `crates/storage/src/sqlite_decision_records.rs`
+  - `migrations/sqlite/20260715012000_reject_null_decision_record_snapshots.sql`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 修正 JSON `null` 绕过问题：SQLite adapter 的读取端现在会拒绝 `null` 快照并安全映射为 repository unavailable；可选快照若以 JSON `null` 而非 SQL `NULL` 存储，也同样不会进入领域模型。
+  - 新增 SQLite migration，以 insert/update trigger 阻止任一必填 decision record snapshot（execution、fundamental、trend、decision）被直接写入 JSON `null`；既有损坏行不会被静默修复，而会在读取时被拒绝，避免伪造有效审计记录。
+  - 全项目演示 MVP 审计结论：本地 SQLite、计划管理、双桶执行预览、70/20/10 纯函数决策、MockBroker 串联和只读 decision history 已可用；但 `apps/web` 当前仍是 Vite 模板，尚未实现演示界面。
+  - 演示 MVP 的阻塞项依优先级为：
+    1. 将 DashScope/Qwen client 接入 server config、API state 与真实 market sentiment route，并以真实 key smoke test。
+    2. 实现 Futu/Moomoo OpenD 的真实 TCP/SDK gateway transport，注入 server，并以 paper/virtual account 提交订单和获取 ack。
+    3. 将 Decision Preview 升级为受控服务端编排：接入真实 Qwen、确定 fundamental/trend 的演示输入来源、生成分层 summary，并在成功结果后自动写入本地 decision record。
+    4. 由前端负责方把当前 Vite 模板替换为计划、信号、决策、双桶、paper order 与 history 的演示闭环。
+    5. 补全真实凭据的端到端 smoke 文档；Docker Compose 的 SQLite named volume 写权限仍需在有 Docker 的环境实测并修正（当前镜像以内置目录 chown，挂载 volume 后权限可能变化）。
+  - 自动 Scheduler、成交回报状态机、多用户和 live trading 均不属于本次“演示可用”最小 MVP 的阻塞项。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p indexlink-storage --locked` 通过（30 tests，覆盖 adapter 读取拒绝 JSON `null`、migration 阻止 insert/update 直接写入 JSON `null`）。
+  - `cargo test -p core-domain --locked` 通过（13 tests）。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo clippy -p indexlink-storage --all-targets --all-features --locked -- -D warnings` 通过。
+
+### 2026-07-15 22:30 AEST
+
+- 执行模型：GPT-5。
+- 变更类型：SQLite 本地持久化 / Part 3：Decision Record adapter 与 production runtime wiring。
+- 涉及文件：
+  - `.env.example`
+  - `README.md`
+  - `API_MANAGEMENT.md`
+  - `docs/minimum_mvp.md`
+  - `deployment/Dockerfile`
+  - `deployment/docker-compose.yml`
+  - `apps/server/src/config.rs`
+  - `apps/server/src/main.rs`
+  - `crates/api/src/state.rs`
+  - `crates/storage/src/lib.rs`
+  - `crates/storage/src/sqlite.rs`
+  - `crates/storage/src/sqlite_decision_records.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `SqliteDecisionRecordRepository`，以静态 SQLite 查询实现审计快照的 create、按计划有上限列表查询与单条查询；金额沿用固定精度文本编码，JSON、UUID、时间或状态快照损坏时安全映射为后端不可用。
+  - `ApiState` 生产组合根改用 SQLite plan 与 decision record adapter，旧 PostgreSQL adapter 保留但不再进入默认运行路径。
+  - server 使用 SQLite 默认 URL 连接本地文件，并在 HTTP 监听前执行编译期嵌入的 migration；migration 失败将阻止服务启动。
+  - 配置、示例环境变量、Dockerfile 与 Compose 改为本地 SQLite。Compose 使用 `sqlite-data` volume 保留数据，不再依赖 PostgreSQL 容器。
+  - 更新 MVP 与 API 文档，明确默认本地存储、旧 PostgreSQL adapter 的兼容定位，以及 Decision Preview 自动存证仍是后续工作。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p indexlink-storage --locked` 通过（30 tests，含 SQLite decision record 的外键、金额精度、UTC `Z` 时间、JSON 快照与 history limit）。
+  - `cargo test -p indexlink-api --locked` 通过（28 tests）。
+  - `cargo test -p indexlink-server --locked` 通过（14 tests）。
+  - `cargo test -p core-domain --locked` 通过（13 tests）。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo clippy -p indexlink-storage -p indexlink-api -p indexlink-server --all-targets --all-features --locked -- -D warnings` 通过。
+  - `cargo doc -p indexlink-storage --no-deps --locked` 通过。
+  - 使用临时 SQLite 文件启动 `indexlink-server`，`GET /ready` 返回 `{"status":"ready","database":"ok"}`；确认 migration 在监听 HTTP 前完成。
+  - 未安装 Docker CLI，未能在本机执行 `docker compose ... config`；Compose 文件仅做静态审查。
+
 ### 2026-07-15 AEST
 
 - 执行模型：GPT-5。
