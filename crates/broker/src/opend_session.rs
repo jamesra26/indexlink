@@ -4,14 +4,20 @@
 //! bootstrap protocols needed before a paper order can be submitted. Order
 //! conversion and submission deliberately remain in the next adapter PR.
 
-use std::{fmt, time::Duration};
+use std::{
+    fmt,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use serde_json::{json, Map, Value};
 use sha1::{Digest, Sha1};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    time::timeout,
+    sync::Mutex,
+    task::JoinHandle,
+    time::{sleep, timeout},
 };
 
 use crate::{BrokerEnvironment, OpenDConnectionConfig};
@@ -21,6 +27,7 @@ const MAX_BODY_LENGTH: usize = 1024 * 1024;
 const JSON_FORMAT: u8 = 1;
 const INIT_CONNECT_PROTOCOL_ID: u32 = 1001;
 const GET_GLOBAL_STATE_PROTOCOL_ID: u32 = 1002;
+const KEEP_ALIVE_PROTOCOL_ID: u32 = 1004;
 const GET_ACCOUNT_LIST_PROTOCOL_ID: u32 = 2001;
 const PAPER_TRADING_ENVIRONMENT: i64 = 0;
 const SESSION_TIMEOUT: Duration = Duration::from_secs(5);
@@ -72,9 +79,13 @@ pub enum OpenDSessionError {
 /// outside this PR; refusing a remote plaintext TCP connection is safer than
 /// silently forwarding trading metadata across the network.
 pub struct OpenDPaperSession {
-    // Retained so the initialized socket stays open for the order gateway in PR 2.
-    _transport: OpenDTcpTransport,
+    // Shared by the heartbeat task and the follow-up order gateway, so protocol
+    // serial numbers and socket writes remain strictly ordered.
+    _transport: Arc<Mutex<OpenDTcpTransport>>,
+    // Aborted on drop so a detached timer cannot outlive this session.
+    heartbeat_task: JoinHandle<()>,
     connection_id: u64,
+    keep_alive_interval: Duration,
     selected_account_id: String,
 }
 
@@ -94,14 +105,18 @@ impl OpenDPaperSession {
         }
 
         let mut transport = OpenDTcpTransport::connect(config).await?;
-        let connection_id = initialize_connection(&mut transport).await?;
+        let initialized = initialize_connection(&mut transport).await?;
         verify_trading_login(&mut transport).await?;
         let accounts = fetch_paper_accounts(&mut transport).await?;
         let selected_account_id = select_paper_account(config.account_id(), accounts)?;
+        let transport = Arc::new(Mutex::new(transport));
+        let heartbeat_task = spawn_heartbeat(&transport, initialized.keep_alive_interval);
 
         Ok(Self {
             _transport: transport,
-            connection_id,
+            heartbeat_task,
+            connection_id: initialized.connection_id,
+            keep_alive_interval: initialized.keep_alive_interval,
             selected_account_id,
         })
     }
@@ -127,8 +142,15 @@ impl fmt::Debug for OpenDPaperSession {
         formatter
             .debug_struct("OpenDPaperSession")
             .field("connection_id", &self.connection_id)
+            .field("keep_alive_interval", &self.keep_alive_interval)
             .field("selected_account_id", &"<redacted>")
             .finish_non_exhaustive()
+    }
+}
+
+impl Drop for OpenDPaperSession {
+    fn drop(&mut self) {
+        self.heartbeat_task.abort();
     }
 }
 
@@ -192,9 +214,14 @@ struct OpenDFrame {
     body: Vec<u8>,
 }
 
+struct InitializedConnection {
+    connection_id: u64,
+    keep_alive_interval: Duration,
+}
+
 async fn initialize_connection(
     transport: &mut OpenDTcpTransport,
-) -> Result<u64, OpenDSessionError> {
+) -> Result<InitializedConnection, OpenDSessionError> {
     let response = transport
         .request(
             INIT_CONNECT_PROTOCOL_ID,
@@ -210,7 +237,10 @@ async fn initialize_connection(
         )
         .await?;
     let payload = successful_payload(&response)?;
-    u64_field(payload, "connID")
+    Ok(InitializedConnection {
+        connection_id: u64_field(payload, "connID")?,
+        keep_alive_interval: positive_seconds(payload, "keepAliveInterval")?,
+    })
 }
 
 async fn verify_trading_login(transport: &mut OpenDTcpTransport) -> Result<(), OpenDSessionError> {
@@ -308,6 +338,17 @@ fn integer_field(payload: &Map<String, Value>, name: &str) -> Result<i64, OpenDS
     integer_value(payload.get(name)).ok_or(OpenDSessionError::InvalidResponse)
 }
 
+fn positive_seconds(
+    payload: &Map<String, Value>,
+    name: &str,
+) -> Result<Duration, OpenDSessionError> {
+    let seconds = u64::try_from(integer_field(payload, name)?)
+        .ok()
+        .filter(|seconds| *seconds > 0)
+        .ok_or(OpenDSessionError::InvalidResponse)?;
+    Ok(Duration::from_secs(seconds))
+}
+
 fn integer_value(value: Option<&Value>) -> Option<i64> {
     match value? {
         Value::Number(number) => number.as_i64(),
@@ -339,6 +380,40 @@ fn socket_address(host: &str, port: u16) -> String {
     } else {
         format!("{host}:{port}")
     }
+}
+
+fn spawn_heartbeat(
+    transport: &Arc<Mutex<OpenDTcpTransport>>,
+    interval: Duration,
+) -> JoinHandle<()> {
+    let transport = Arc::downgrade(transport);
+    tokio::spawn(async move {
+        loop {
+            sleep(interval).await;
+            let Some(transport) = transport.upgrade() else {
+                return;
+            };
+            let mut transport = transport.lock().await;
+            if send_keep_alive(&mut transport).await.is_err() {
+                return;
+            }
+        }
+    })
+}
+
+async fn send_keep_alive(transport: &mut OpenDTcpTransport) -> Result<(), OpenDSessionError> {
+    let sent_at: i64 = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| OpenDSessionError::InvalidResponse)?
+        .as_secs()
+        .try_into()
+        .map_err(|_| OpenDSessionError::InvalidResponse)?;
+    let response = transport
+        .request(KEEP_ALIVE_PROTOCOL_ID, json!({"c2s": {"time": sent_at}}))
+        .await?;
+    let payload = successful_payload(&response)?;
+    integer_field(payload, "time")?;
+    Ok(())
 }
 
 fn encode_frame(protocol_id: u32, serial: u32, body: &[u8]) -> Vec<u8> {
@@ -398,10 +473,26 @@ mod tests {
     use super::*;
     use crate::{BrokerProvider, OpenDConnectionConfig};
 
+    const GOLDEN_KEEP_ALIVE_FRAME: [u8; 46] = [
+        b'F', b'T', 0xec, 0x03, 0x00, 0x00, 0x01, 0x00, 0x07, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00,
+        0x00, 0xbf, 0x21, 0xa9, 0xe8, 0xfb, 0xc5, 0xa3, 0x84, 0x6f, 0xb0, 0x5b, 0x4f, 0xa0, 0x85,
+        0x9e, 0x09, 0x17, 0xb2, 0x20, 0x2f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, b'{',
+        b'}',
+    ];
+
     /// Start a local fake that verifies session requests and returns supplied state.
     async fn spawn_opend(
         trading_logged_in: bool,
         accounts: Vec<Value>,
+    ) -> (u16, tokio::task::JoinHandle<()>) {
+        spawn_opend_with_heartbeat(trading_logged_in, accounts, false).await
+    }
+
+    /// Start a local fake that can additionally verify the first KeepAlive request.
+    async fn spawn_opend_with_heartbeat(
+        trading_logged_in: bool,
+        accounts: Vec<Value>,
+        expect_heartbeat: bool,
     ) -> (u16, tokio::task::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -429,7 +520,11 @@ mod tests {
                 .write_all(&encode_frame(
                     INIT_CONNECT_PROTOCOL_ID,
                     init.serial,
-                    &serde_json::to_vec(&json!({"retType": 0, "s2c": {"connID": "42"}})).unwrap(),
+                    &serde_json::to_vec(&json!({
+                        "retType": 0,
+                        "s2c": {"connID": "42", "keepAliveInterval": 1}
+                    }))
+                    .unwrap(),
                 ))
                 .await
                 .unwrap();
@@ -467,9 +562,79 @@ mod tests {
                 ))
                 .await
                 .unwrap();
+
+            if expect_heartbeat {
+                let keep_alive = read_frame(&mut stream)
+                    .await
+                    .expect("valid keep-alive frame");
+                assert_eq!(keep_alive.protocol_id, KEEP_ALIVE_PROTOCOL_ID);
+                assert_eq!(keep_alive.serial, 4);
+                assert!(serde_json::from_slice::<Value>(&keep_alive.body)
+                    .unwrap()
+                    .pointer("/c2s/time")
+                    .and_then(Value::as_i64)
+                    .is_some());
+                stream
+                    .write_all(&encode_frame(
+                        KEEP_ALIVE_PROTOCOL_ID,
+                        keep_alive.serial,
+                        &serde_json::to_vec(&json!({"retType": 0, "s2c": {"time": 1}})).unwrap(),
+                    ))
+                    .await
+                    .unwrap();
+            }
         });
 
         (port, task)
+    }
+
+    /// Verify the encoder matches an OpenD frame captured as a fixed golden value.
+    #[test]
+    fn frame_encoding_matches_independent_golden_frame() {
+        assert_eq!(
+            encode_frame(KEEP_ALIVE_PROTOCOL_ID, 7, b"{}"),
+            GOLDEN_KEEP_ALIVE_FRAME
+        );
+    }
+
+    /// Verify a missing or non-positive server heartbeat interval is rejected.
+    #[test]
+    fn heartbeat_interval_requires_positive_seconds() {
+        let mut payload = Map::new();
+        assert_eq!(
+            positive_seconds(&payload, "keepAliveInterval"),
+            Err(OpenDSessionError::InvalidResponse)
+        );
+
+        payload.insert("keepAliveInterval".to_owned(), json!(0));
+        assert_eq!(
+            positive_seconds(&payload, "keepAliveInterval"),
+            Err(OpenDSessionError::InvalidResponse)
+        );
+    }
+
+    /// Verify a raw frame with a corrupted SHA-1 digest is rejected.
+    #[tokio::test]
+    async fn frame_reader_rejects_corrupted_golden_frame() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test listener should bind");
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("client should connect");
+            let mut corrupted = GOLDEN_KEEP_ALIVE_FRAME;
+            corrupted[16] ^= 0xff;
+            stream.write_all(&corrupted).await.unwrap();
+        });
+        let mut client = TcpStream::connect(address)
+            .await
+            .expect("test client should connect");
+
+        assert!(matches!(
+            read_frame(&mut client).await,
+            Err(OpenDSessionError::InvalidResponse)
+        ));
+        task.await.unwrap();
     }
 
     /// Verify the official raw frames initialize and select the sole paper account.
@@ -521,6 +686,29 @@ mod tests {
 
         assert_eq!(session.selected_account_id(), "paper-b");
         server.await.unwrap();
+    }
+
+    /// Verify the session sends protocol 1004 at the interval supplied by OpenD.
+    #[tokio::test]
+    async fn session_sends_keep_alive_at_server_interval() {
+        let (port, server) = spawn_opend_with_heartbeat(
+            true,
+            vec![json!({"trdEnv": 0, "accID": "paper-account"})],
+            true,
+        )
+        .await;
+        let config = OpenDConnectionConfig::paper(BrokerProvider::Futu, "127.0.0.1", port)
+            .expect("paper config should be valid");
+
+        let session = OpenDPaperSession::connect(&config)
+            .await
+            .expect("paper session should initialize");
+
+        assert_eq!(session.keep_alive_interval, Duration::from_secs(1));
+        timeout(SESSION_TIMEOUT, server)
+            .await
+            .expect("keep-alive should arrive before timeout")
+            .unwrap();
     }
 
     /// Verify a non-authenticated OpenD trading service cannot form a session.
