@@ -9,11 +9,16 @@
 //! paper trading is the default demo path, live trading must be explicitly
 //! enabled, and public errors must not expose account credentials.
 
+mod opend_session;
+
 use std::{fmt, sync::Mutex};
 
 use async_trait::async_trait;
 use rust_decimal::Decimal;
 use serde::Serialize;
+
+/// Paper-only raw TCP session for a locally running Futu/Moomoo OpenD gateway.
+pub use opend_session::{OpenDPaperSession, OpenDSessionError};
 
 const MAX_SYMBOL_LEN: usize = 32;
 const MAX_IDEMPOTENCY_KEY_LEN: usize = 128;

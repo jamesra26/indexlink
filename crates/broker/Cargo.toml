@@ -7,7 +7,10 @@ edition.workspace = true
 async-trait.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "sync"] }
 
 [dev-dependencies]
 tokio.workspace = true
