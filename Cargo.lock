@@ -172,6 +172,8 @@ dependencies = [
  "async-trait",
  "rust_decimal",
  "serde",
+ "serde_json",
+ "sha1",
  "thiserror",
  "tokio",
 ]

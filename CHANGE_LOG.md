@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### 2026-07-17 23:03 AEST
+
+- 执行模型：GPT-5。
+- 变更类型：Futu/Moomoo OpenD / Part 1：paper-only raw TCP session transport。
+- 涉及文件：
+  - `Cargo.lock`
+  - `Cargo.toml`
+  - `crates/broker/Cargo.toml`
+  - `crates/broker/src/lib.rs`
+  - `crates/broker/src/opend_session.rs`
+  - `CHANGE_LOG.md`
+- 变更内容：
+  - 新增 `OpenDPaperSession`，使用 Futu/Moomoo 官方 raw TCP 帧（`FT` 标志、44 字节 little-endian header、JSON body 与 SHA-1 完整性校验）建立会话；本阶段只完成 `InitConnect`（1001）、交易登录状态检查（1002）和交易账户列表（2001），不提交订单。
+  - 会话在 `InitConnect` 后确认 `trdLogined=true`；OpenD 的用户登录仍由本机 OpenD 进程负责，IndexLink 不读取、传输或记录 Futu/Moomoo 密码、token 或登录凭据。
+  - 仅接受 `Paper` 环境且 live gate 关闭；当未显式指定 account id 时，必须恰好有一个模拟账户，多个候选或无候选都会安全拒绝。显式 account id 也只能匹配模拟账户。
+  - raw TCP 暂时只允许 loopback OpenD（`127.0.0.1`、`::1`、`localhost`）；`localhost` 会固定映射为字面回环地址，不依赖系统 hosts 解析。官方可选 RSA packet encryption 尚未实现，拒绝远端明文 TCP 以避免交易元数据跨网络泄露。
+  - 通过本地 TCP protocol fake 覆盖帧编码/校验、初始化、登录状态、默认/显式 paper account 选择及远端主机拒绝；没有真实下单、server 注入或 virtual-account smoke，本部分保留给后续两份 OpenD PR。
+- 验证：
+  - `cargo fmt --all -- --check` 通过。
+  - `cargo test -p broker --locked` 通过（23 tests，含 loopback TCP protocol fake）。
+  - `cargo test -p core-domain --locked` 通过（13 tests）。
+  - `cargo check --workspace --locked` 通过。
+  - `cargo clippy -p broker --all-targets --all-features --locked -- -D warnings` 通过。
+  - `cargo doc -p broker --no-deps --locked` 通过。
+
 ### 2026-07-16 23:58 AEST
 
 - 执行模型：GPT-5。
