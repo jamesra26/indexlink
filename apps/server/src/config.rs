@@ -122,13 +122,10 @@ fn opend_config(
         "moomoo" => BrokerProvider::Moomoo,
         _ => return Err(ConfigError::InvalidOpenDProvider),
     };
-    let host = non_blank(
+    let host = normalize_loopback_opend_host(non_blank(
         OPEND_HOST,
         lookup(OPEND_HOST).unwrap_or_else(|| DEFAULT_OPEND_HOST.to_owned()),
-    )?;
-    if !matches!(host.as_str(), "127.0.0.1" | "::1" | "localhost") {
-        return Err(ConfigError::OpenDLoopbackRequired);
-    }
+    )?)?;
     let port = parse_u16(
         OPEND_PORT,
         &lookup(OPEND_PORT).unwrap_or_else(|| DEFAULT_OPEND_PORT.to_owned()),
@@ -146,6 +143,20 @@ fn opend_config(
     .map_err(|_| ConfigError::InvalidOpenDConfiguration)?;
 
     Ok(Some(config))
+}
+
+fn normalize_loopback_opend_host(host: String) -> Result<String, ConfigError> {
+    if host.eq_ignore_ascii_case("localhost") {
+        return Ok(DEFAULT_OPEND_HOST.to_owned());
+    }
+    let address = host
+        .parse::<IpAddr>()
+        .map_err(|_| ConfigError::OpenDLoopbackRequired)?;
+    if !address.is_loopback() {
+        return Err(ConfigError::OpenDLoopbackRequired);
+    }
+
+    Ok(address.to_string())
 }
 
 fn qwen_config(
@@ -558,7 +569,7 @@ mod tests {
         let opend = config.opend.expect("provider enables OpenD configuration");
 
         assert_eq!(opend.provider(), BrokerProvider::Moomoo);
-        assert_eq!(opend.host(), "localhost");
+        assert_eq!(opend.host(), DEFAULT_OPEND_HOST);
         assert_eq!(opend.port(), 11111);
         assert_eq!(opend.account_id(), Some("paper-account"));
         assert_eq!(opend.environment(), broker::BrokerEnvironment::Paper);
@@ -576,5 +587,26 @@ mod tests {
             parse(&[(OPEND_PROVIDER, "futu"), (OPEND_HOST, "opend.example")]),
             Err(ConfigError::OpenDLoopbackRequired)
         ));
+    }
+
+    /// Verify every literal loopback form is normalized without hostname resolution.
+    #[test]
+    fn opend_configuration_normalizes_loopback_literals() {
+        for (input, expected) in [
+            ("LOCALHOST", "127.0.0.1"),
+            ("127.0.0.2", "127.0.0.2"),
+            ("0:0:0:0:0:0:0:1", "::1"),
+        ] {
+            let config = parse(&[(OPEND_PROVIDER, "futu"), (OPEND_HOST, input)])
+                .expect("loopback host should be accepted");
+
+            assert_eq!(
+                config
+                    .opend
+                    .expect("provider enables OpenD configuration")
+                    .host(),
+                expected
+            );
+        }
     }
 }

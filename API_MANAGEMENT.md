@@ -342,13 +342,13 @@ OPEND_ACCOUNT_ID='<paper-account-id>'
 export OPEND_PROVIDER=futu
 export OPEND_HOST=127.0.0.1
 export OPEND_PORT=11111
-read -r 'OPEND_ACCOUNT_ID?Paper account ID: '
+read -r -p 'Paper account ID: ' OPEND_ACCOUNT_ID
 export OPEND_ACCOUNT_ID
-read -r 'OPEND_SMOKE_IDEMPOTENCY_KEY?Unique idempotency key: '
+read -r -p 'Unique idempotency key: ' OPEND_SMOKE_IDEMPOTENCY_KEY
 export OPEND_SMOKE_IDEMPOTENCY_KEY
-read -r 'OPEND_SMOKE_SYMBOL?US symbol: '
+read -r -p 'US symbol: ' OPEND_SMOKE_SYMBOL
 export OPEND_SMOKE_SYMBOL
-read -r 'OPEND_SMOKE_QUANTITY?Quantity: '
+read -r -p 'Quantity: ' OPEND_SMOKE_QUANTITY
 export OPEND_SMOKE_QUANTITY
 OPEND_SMOKE_CONFIRM=submit-paper-order \
   cargo test -p indexlink-server real_opend_paper_order_smoke -- --ignored --nocapture

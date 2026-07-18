@@ -905,6 +905,7 @@ name = "indexlink-server"
 version = "0.1.0"
 dependencies = [
  "ai-client",
+ "async-trait",
  "axum",
  "broker",
  "dotenvy",
