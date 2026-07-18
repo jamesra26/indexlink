@@ -53,12 +53,15 @@ pub enum OpenDSessionError {
     /// The raw transport was configured for a host other than local OpenD.
     #[error("opend raw TCP transport requires a loopback host")]
     RemoteHostUnsupported,
-    /// Connecting to or exchanging a packet with OpenD timed out.
+    /// Connecting to OpenD timed out before a session request was sent.
     #[error("opend session request timed out")]
     Timeout,
     /// OpenD could not be reached or closed the TCP connection.
     #[error("opend is unavailable")]
     Unavailable,
+    /// An OpenD request may have been sent, but no trustworthy result arrived.
+    #[error("opend request outcome is unknown")]
+    OutcomeUnknown,
     /// OpenD returned a malformed or mismatched protocol frame.
     #[error("opend returned an invalid protocol response")]
     InvalidResponse,
@@ -260,28 +263,27 @@ impl OpenDTcpTransport {
         let body = serde_json::to_vec(&body).map_err(|_| OpenDSessionError::InvalidResponse)?;
         let request = encode_frame(protocol_id, serial, &body);
 
-        let response = timeout(SESSION_TIMEOUT, async {
-            self.stream
-                .write_all(&request)
-                .await
-                .map_err(|_| OpenDSessionError::Unavailable)?;
-            self.stream
-                .flush()
-                .await
-                .map_err(|_| OpenDSessionError::Unavailable)?;
-            read_frame(&mut self.stream).await
-        })
-        .await
-        .map_err(|_| OpenDSessionError::Timeout)??;
+        timeout(SESSION_TIMEOUT, self.stream.write_all(&request))
+            .await
+            .map_err(|_| OpenDSessionError::OutcomeUnknown)?
+            .map_err(|_| OpenDSessionError::OutcomeUnknown)?;
+        timeout(SESSION_TIMEOUT, self.stream.flush())
+            .await
+            .map_err(|_| OpenDSessionError::OutcomeUnknown)?
+            .map_err(|_| OpenDSessionError::OutcomeUnknown)?;
+        let response = timeout(SESSION_TIMEOUT, read_frame(&mut self.stream))
+            .await
+            .map_err(|_| OpenDSessionError::OutcomeUnknown)?
+            .map_err(|_| OpenDSessionError::OutcomeUnknown)?;
 
         if response.protocol_id != protocol_id
             || response.serial != serial
             || response.format != JSON_FORMAT
         {
-            return Err(OpenDSessionError::InvalidResponse);
+            return Err(OpenDSessionError::OutcomeUnknown);
         }
 
-        serde_json::from_slice(&response.body).map_err(|_| OpenDSessionError::InvalidResponse)
+        serde_json::from_slice(&response.body).map_err(|_| OpenDSessionError::OutcomeUnknown)
     }
 }
 
@@ -582,6 +584,7 @@ fn non_empty_string_field(payload: &Map<String, Value>, name: &str) -> Option<St
 fn map_order_error(error: OpenDSessionError) -> BrokerError {
     match error {
         OpenDSessionError::Rejected => BrokerError::Rejected,
+        OpenDSessionError::OutcomeUnknown => BrokerError::OutcomeUnknown,
         _ => BrokerError::Unavailable,
     }
 }
@@ -652,8 +655,10 @@ mod tests {
 
     enum PostBootstrapRequest {
         None,
+        NoPlaceOrder,
         KeepAlive,
         PlaceOrder { expected: Value, response: Value },
+        CloseAfterPlaceOrder { expected: Value },
     }
 
     /// Start a local fake that verifies session requests and returns supplied state.
@@ -756,6 +761,18 @@ mod tests {
 
             match post_bootstrap_request {
                 PostBootstrapRequest::None => {}
+                PostBootstrapRequest::NoPlaceOrder => {
+                    match timeout(Duration::from_millis(100), read_frame(&mut stream)).await {
+                        Err(_) | Ok(Err(OpenDSessionError::Unavailable)) => {}
+                        Ok(Ok(frame)) => panic!(
+                            "unexpected protocol {} sent while order should be rejected locally",
+                            frame.protocol_id
+                        ),
+                        Ok(Err(error)) => {
+                            panic!("unexpected local-rejection read error: {error:?}")
+                        }
+                    }
+                }
                 PostBootstrapRequest::KeepAlive => {
                     let keep_alive = read_frame(&mut stream)
                         .await
@@ -793,6 +810,15 @@ mod tests {
                         ))
                         .await
                         .unwrap();
+                }
+                PostBootstrapRequest::CloseAfterPlaceOrder { expected } => {
+                    let order = read_frame(&mut stream).await.expect("valid order frame");
+                    assert_eq!(order.protocol_id, PLACE_ORDER_PROTOCOL_ID);
+                    assert_eq!(order.serial, 4);
+                    assert_eq!(
+                        serde_json::from_slice::<Value>(&order.body).unwrap(),
+                        expected
+                    );
                 }
             }
         });
@@ -923,10 +949,21 @@ mod tests {
             .unwrap();
     }
 
-    /// Verify a paper market order maps to the official US OpenD request and ack.
-    #[tokio::test]
-    async fn session_submits_us_market_order_and_maps_ack() {
-        let expected = json!({
+    /// Build a paper or live market-order fixture sharing the MVP US symbol.
+    fn market_order(environment: BrokerEnvironment) -> BrokerOrderRequest {
+        BrokerOrderRequest::market(
+            "demo-order-1",
+            "VOO",
+            BrokerOrderSide::Buy,
+            "1.25".parse().unwrap(),
+            environment,
+        )
+        .expect("market request should be valid")
+    }
+
+    /// Return the raw OpenD body expected for the shared paper market-order fixture.
+    fn expected_market_order() -> Value {
+        json!({
             "c2s": {
                 "packetID": {"connID": 42, "serialNo": 0},
                 "header": {"trdEnv": 0, "accID": "paper-account", "trdMarket": 2},
@@ -938,7 +975,12 @@ mod tests {
                 "secMarket": 2,
                 "remark": "indexlink-93b20997c68861289ecc064f21e1e7a8ed839a72",
             }
-        });
+        })
+    }
+
+    /// Verify a paper market order maps to the official US OpenD request and ack.
+    #[tokio::test]
+    async fn session_submits_us_market_order_and_maps_ack() {
         let response = json!({
             "retType": 0,
             "s2c": {
@@ -949,7 +991,10 @@ mod tests {
         let (port, server) = spawn_opend_with_request(
             true,
             vec![json!({"trdEnv": 0, "accID": "paper-account"})],
-            PostBootstrapRequest::PlaceOrder { expected, response },
+            PostBootstrapRequest::PlaceOrder {
+                expected: expected_market_order(),
+                response,
+            },
             60,
         )
         .await;
@@ -958,14 +1003,7 @@ mod tests {
         let session = OpenDPaperSession::connect(&config)
             .await
             .expect("paper session should initialize");
-        let request = BrokerOrderRequest::market(
-            "demo-order-1",
-            "voo",
-            BrokerOrderSide::Buy,
-            "1.25".parse().unwrap(),
-            BrokerEnvironment::Paper,
-        )
-        .expect("market request should be valid");
+        let request = market_order(BrokerEnvironment::Paper);
 
         let ack = OpenDOrderGateway::submit_paper_order(&session, &config, &request)
             .await
@@ -1011,24 +1049,11 @@ mod tests {
     /// Verify OpenD rejection is preserved without leaking its provider message.
     #[tokio::test]
     async fn session_maps_opend_rejection_to_safe_broker_error() {
-        let expected = json!({
-            "c2s": {
-                "packetID": {"connID": 42, "serialNo": 0},
-                "header": {"trdEnv": 0, "accID": "paper-account", "trdMarket": 2},
-                "trdSide": 1,
-                "orderType": 2,
-                "code": "VOO",
-                "qty": 1.25,
-                "price": 0.0,
-                "secMarket": 2,
-                "remark": "indexlink-93b20997c68861289ecc064f21e1e7a8ed839a72",
-            }
-        });
         let (port, server) = spawn_opend_with_request(
             true,
             vec![json!({"trdEnv": 0, "accID": "paper-account"})],
             PostBootstrapRequest::PlaceOrder {
-                expected,
+                expected: expected_market_order(),
                 response: json!({"retType": -1, "retMsg": "provider message must not escape"}),
             },
             60,
@@ -1039,18 +1064,148 @@ mod tests {
         let session = OpenDPaperSession::connect(&config)
             .await
             .expect("paper session should initialize");
-        let request = BrokerOrderRequest::market(
-            "demo-order-1",
-            "VOO",
-            BrokerOrderSide::Buy,
-            "1.25".parse().unwrap(),
-            BrokerEnvironment::Paper,
-        )
-        .expect("market request should be valid");
+        let request = market_order(BrokerEnvironment::Paper);
 
         assert_eq!(
             OpenDOrderGateway::submit_paper_order(&session, &config, &request).await,
             Err(BrokerError::Rejected)
+        );
+        server.await.unwrap();
+    }
+
+    /// Verify a non-paper request is rejected before any PlaceOrder frame is sent.
+    #[tokio::test]
+    async fn session_rejects_non_paper_request_before_sending_order() {
+        let (port, server) = spawn_opend_with_request(
+            true,
+            vec![json!({"trdEnv": 0, "accID": "paper-account"})],
+            PostBootstrapRequest::NoPlaceOrder,
+            60,
+        )
+        .await;
+        let config = OpenDConnectionConfig::paper(BrokerProvider::Futu, "127.0.0.1", port)
+            .expect("paper config should be valid");
+        let session = OpenDPaperSession::connect(&config)
+            .await
+            .expect("paper session should initialize");
+
+        assert_eq!(
+            session
+                .submit_paper_order(&market_order(BrokerEnvironment::Live))
+                .await,
+            Err(BrokerError::EnvironmentMismatch {
+                configured: BrokerEnvironment::Paper,
+                requested: BrokerEnvironment::Live,
+            })
+        );
+        server.await.unwrap();
+    }
+
+    /// Verify a live adapter configuration is rejected before any PlaceOrder frame is sent.
+    #[tokio::test]
+    async fn gateway_rejects_live_configuration_before_sending_order() {
+        let (port, server) = spawn_opend_with_request(
+            true,
+            vec![json!({"trdEnv": 0, "accID": "paper-account"})],
+            PostBootstrapRequest::NoPlaceOrder,
+            60,
+        )
+        .await;
+        let session_config = OpenDConnectionConfig::paper(BrokerProvider::Futu, "127.0.0.1", port)
+            .expect("paper config should be valid");
+        let session = OpenDPaperSession::connect(&session_config)
+            .await
+            .expect("paper session should initialize");
+        let live_config = OpenDConnectionConfig::new(
+            BrokerProvider::Futu,
+            "127.0.0.1",
+            port,
+            BrokerEnvironment::Live,
+            None,
+            true,
+        )
+        .expect("live config should be valid");
+
+        assert_eq!(
+            OpenDOrderGateway::submit_paper_order(
+                &session,
+                &live_config,
+                &market_order(BrokerEnvironment::Paper),
+            )
+            .await,
+            Err(BrokerError::PaperTradingRequired {
+                configured: BrokerEnvironment::Live,
+            })
+        );
+        server.await.unwrap();
+    }
+
+    /// Verify a different configured account is rejected before any PlaceOrder frame is sent.
+    #[tokio::test]
+    async fn gateway_rejects_mismatched_account_before_sending_order() {
+        let (port, server) = spawn_opend_with_request(
+            true,
+            vec![json!({"trdEnv": 0, "accID": "paper-account"})],
+            PostBootstrapRequest::NoPlaceOrder,
+            60,
+        )
+        .await;
+        let session_config = OpenDConnectionConfig::paper_with_account(
+            BrokerProvider::Futu,
+            "127.0.0.1",
+            port,
+            "paper-account",
+        )
+        .expect("paper config should be valid");
+        let session = OpenDPaperSession::connect(&session_config)
+            .await
+            .expect("paper session should initialize");
+        let different_account = OpenDConnectionConfig::paper_with_account(
+            BrokerProvider::Futu,
+            "127.0.0.1",
+            port,
+            "other-paper-account",
+        )
+        .expect("paper config should be valid");
+
+        assert_eq!(
+            OpenDOrderGateway::submit_paper_order(
+                &session,
+                &different_account,
+                &market_order(BrokerEnvironment::Paper),
+            )
+            .await,
+            Err(BrokerError::Rejected)
+        );
+        server.await.unwrap();
+    }
+
+    /// Verify a sent order without a response is marked as unsafe to retry.
+    #[tokio::test]
+    async fn session_marks_sent_order_without_response_as_outcome_unknown() {
+        let (port, server) = spawn_opend_with_request(
+            true,
+            vec![json!({"trdEnv": 0, "accID": "paper-account"})],
+            PostBootstrapRequest::CloseAfterPlaceOrder {
+                expected: expected_market_order(),
+            },
+            60,
+        )
+        .await;
+        let config = OpenDConnectionConfig::paper(BrokerProvider::Futu, "127.0.0.1", port)
+            .expect("paper config should be valid");
+        let session = OpenDPaperSession::connect(&config)
+            .await
+            .expect("paper session should initialize");
+
+        assert_eq!(
+            OpenDOrderGateway::submit_paper_order(
+                &session,
+                &config,
+                &market_order(BrokerEnvironment::Paper),
+            )
+            .await,
+            Err(BrokerError::OutcomeUnknown)
         );
         server.await.unwrap();
     }

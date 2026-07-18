@@ -592,6 +592,9 @@ pub enum BrokerError {
     /// OpenD rejected a paper-order request without a safe retry guarantee.
     #[error("paper order was rejected")]
     Rejected,
+    /// OpenD may have received the order, but its final outcome is unknown.
+    #[error("paper order outcome is unknown; do not retry")]
+    OutcomeUnknown,
     /// Broker adapter or gateway is unavailable.
     #[error("broker is unavailable")]
     Unavailable,
